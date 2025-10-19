@@ -45,7 +45,7 @@ https://github.com/vrcx-team/VRCX
 ---
 
 ## 🚀 今後のアップデート予定
-- **VRChatワールド関連の外部サイト**や**インスタンスページ**への対応を追加予定。
+- **VRChatワールド関連の外部サイト**や**インスタンスページ**、英語版を追加予定。
 
 ---
 
@@ -105,7 +105,7 @@ Keeps track of deleted or private worlds, displaying their IDs clearly.
 
 🚀 Upcoming Updates
 
-Planned support for VRChat-related external websites and instance pages to expand compatibility.
+Planned support for VRChat-related external websites and instance pages to expand compatibility.English version coming soon.
 
 🧩 Developer’s Note
 
