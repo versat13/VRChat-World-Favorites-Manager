@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "VRChat Favorite Worlds Manager",
+  "version": "1.0.0",
+  "description": "VRChatのワールドを公式と連携しながらお気に入り登録・管理できる拡張機能",
+  "permissions": [
+    "storage",
+    "tabs",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "*://vrchat.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://vrchat.com/home/*"
+      ],
+      "js": [
+        "page-world.js",
+        "page-favorites.js"
+      ]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

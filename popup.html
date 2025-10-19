@@ -1,0 +1,1307 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VRChat World Favorites Manager</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0a0e1a;
+      color: #e0e0e0;
+      min-width: 700px;
+      min-height: 500px;
+      overflow: hidden;
+    }
+
+    body.popup-mode {
+      width: 700px;
+      height: 600px;
+      max-height: 600px;
+    }
+
+    body.window-mode {
+      width: 100vw;
+      height: 100vh;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* ヘッダー */
+    .header {
+      background: linear-gradient(135deg, #1a1f2e 0%, #0f1419 100%);
+      padding: 10px 16px;
+      border-bottom: 2px solid #1fd1ed;
+      flex-shrink: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header h1 {
+      font-size: 15px;
+      color: #1fd1ed;
+    }
+
+    .open-window-btn {
+      padding: 4px 10px;
+      background: #1a1f2e;
+      border: 1px solid #1fd1ed;
+      border-radius: 6px;
+      color: #1fd1ed;
+      cursor: pointer;
+      font-size: 11px;
+      transition: all 0.2s;
+    }
+
+    .open-window-btn:hover {
+      background: #1fd1ed;
+      color: #0a0e1a;
+    }
+
+    /* リスト編集中バナー */
+    .editing-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 20px;
+      background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+      color: #78350f;
+      font-weight: 600;
+      border-bottom: 2px solid #d97706;
+      animation: pulse-banner 2s ease-in-out infinite;
+    }
+
+    .editing-icon {
+      font-size: 1.2em;
+    }
+
+    @keyframes pulse-banner {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.85;
+      }
+    }
+
+    /* 確定ボタン */
+    .confirm-button {
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+      color: white !important;
+      font-weight: bold !important;
+      animation: pulse-button 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse-button {
+
+      0%,
+      100% {
+        transform: scale(1);
+      }
+
+      50% {
+        transform: scale(1.05);
+      }
+    }
+
+    /* 変更があるフォルダタブ */
+    .folder-tab.has-changes::after {
+      content: '●';
+      color: #fbbf24;
+      margin-left: 4px;
+      animation: blink 1s ease-in-out infinite;
+    }
+
+    @keyframes blink {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.3;
+      }
+    }
+
+    /* サイドバー */
+    .sidebar {
+      width: 160px;
+      background: #0f1419;
+      border-right: 2px solid #222;
+      overflow-y: auto;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    /* 検索バー */
+    .search-bar {
+      padding: 8px 16px;
+      background: #141920;
+      border-bottom: 1px solid #222;
+      flex-shrink: 0;
+    }
+
+    .search-bar input {
+      width: 100%;
+      padding: 6px 10px;
+      background: #1a1f2e;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 13px;
+    }
+
+    .search-bar input:focus {
+      outline: none;
+      border-color: #1fd1ed;
+      box-shadow: 0 0 0 2px rgba(31, 209, 237, 0.2);
+    }
+
+    /* フォルダタブ(縦配置) */
+    .folder-tabs {
+      display: flex;
+      flex-direction: column;
+      padding: 8px;
+      gap: 6px;
+      flex: 1;
+    }
+
+    .folder-tab {
+      padding: 8px 10px;
+      background: #1a1f2e;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #888;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+      user-select: none;
+      text-align: left;
+      width: 100%;
+    }
+
+    .folder-tab:hover {
+      background: #222;
+      color: #1fd1ed;
+    }
+
+    .folder-tab.active {
+      background: #1fd1ed;
+      color: #0a0e1a;
+      border-color: #1fd1ed;
+    }
+
+    /* VRCフォルダの状態表示 */
+    .folder-tab.vrc-folder {
+      background: #07191d;
+      border-color: #103b48;
+      color: #888;
+    }
+
+    .folder-tab.vrc-folder:hover {
+      background: #1e5c73;
+      color: #1fd1ed;
+      border-color: #1fd1ed;
+    }
+
+    .folder-tab.vrc-folder.active {
+      background: #1fd1ed;
+      color: #0a0e1a;
+      border-color: #1fd1ed;
+      box-shadow: 0 0 12px rgba(74, 144, 226, 0.6);
+    }
+
+    .folder-tab.vrc-folder.vrc-limit-exceeded {
+      background: #3e1f1f;
+      border-color: #f56565;
+      color: #888;
+    }
+
+    .folder-tab.vrc-folder.vrc-limit-exceeded:hover {
+      background: linear-gradient(135deg, #f56565 0%, #c53030 100%);
+      color: white;
+    }
+
+    .folder-tab.vrc-folder.vrc-limit-exceeded.active {
+      background: linear-gradient(135deg, #f56565 0%, #c53030 100%);
+      color: white;
+      border-color: #f56565;
+      box-shadow: 0 0 12px rgba(245, 101, 101, 0.6);
+    }
+
+    .folder-tab.vrc-folder.vrc-needs-sync {
+      background: #3e2e1f;
+      border-color: #f6ad55;
+      color: #888;
+      animation: pulse-yellow 2s ease-in-out infinite;
+    }
+
+    .folder-tab.vrc-folder.vrc-needs-sync:hover {
+      background: linear-gradient(135deg, #f6ad55 0%, #dd6b20 100%);
+      color: white;
+    }
+
+    .folder-tab.vrc-folder.vrc-needs-sync.active {
+      background: linear-gradient(135deg, #f6ad55 0%, #dd6b20 100%);
+      color: white;
+      border-color: #f6ad55;
+      animation: none;
+    }
+
+    /* VRCフォルダの100件超警告（同期不可） */
+    .folder-tab.vrc-folder.vrc-sync-warning {
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    }
+
+    @keyframes pulse-yellow {
+
+      0%,
+      100% {
+        border-color: #cc8e44;
+      }
+
+      50% {
+        border-color: #dd6b20;
+      }
+    }
+
+    .folder-tab.none-folder {
+      background: #2e2a1f;
+      border-color: #8b7355;
+    }
+
+    .folder-tab.none-folder.active {
+      background: #8b7355;
+      color: white;
+      border-color: #8b7355;
+    }
+
+    .folder-tab.add-folder {
+      background: #1a1f2e;
+      border-color: #666;
+      font-weight: bold;
+    }
+
+    .folder-tab.add-folder:hover {
+      background: #2a2f3e;
+      color: #e0e0e0;
+      border-color: #888;
+    }
+
+    .folder-tab.drop-target {
+      background: #1fd1ed;
+      color: #0a0e1a;
+      box-shadow: 0 0 12px rgba(31, 209, 237, 0.6);
+      transform: scale(1.05);
+    }
+
+    .folder-tab.dragging {
+      opacity: 0.5;
+    }
+
+    /* 全選択トグル + 並び替え + 選択中操作 */
+    .select-all-container {
+      padding: 8px 16px;
+      background: #141920;
+      border-bottom: 1px solid #222;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 48px;
+    }
+
+    .checkbox-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    /* 並び替えドロップダウン */
+    .sort-dropdown {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .sort-dropdown select {
+      padding: 4px 8px;
+      background: #1a1f2e;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .sort-dropdown select:focus {
+      outline: none;
+      border-color: #1fd1ed;
+    }
+
+    .sort-order {
+      font-size: 14px;
+      color: #666;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .custom-checkbox {
+      width: 18px;
+      height: 18px;
+      border: 2px solid #333;
+      border-radius: 4px;
+      background: #1a1f2e;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .custom-checkbox.checked {
+      background: #1fd1ed;
+      border-color: #1fd1ed;
+    }
+
+    .custom-checkbox.checked::after {
+      content: '✓';
+      color: #0a0e1a;
+      font-size: 12px;
+      font-weight: bold;
+    }
+
+    .select-all-label {
+      font-size: 12px;
+      color: #888;
+    }
+
+    /* コンテンツエリア */
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 12px 16px;
+      min-height: 0;
+    }
+
+    .popup-mode .content {
+      flex: 1;
+    }
+
+    .worlds-list {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 1fr;
+    }
+
+    @media (min-width: 870px) {
+      .worlds-list {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (min-width: 1220px) {
+      .worlds-list {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
+    .world-item {
+      display: flex;
+      gap: 10px;
+      background: #1a1f2e;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 10px;
+      transition: all 0.2s;
+      cursor: grab;
+      position: relative;
+      min-width: 0;
+      align-items: center;
+    }
+
+    .world-item:hover {
+      border-color: #1fd1ed;
+      box-shadow: 0 0 12px rgba(31, 209, 237, 0.2);
+    }
+
+    .world-item.selected {
+      border-color: #1fd1ed;
+      box-shadow: 0 0 16px rgba(31, 209, 237, 0.4);
+      background: #1f2a3e;
+    }
+
+    .world-item.dragging {
+      opacity: 0.5;
+      cursor: grabbing;
+    }
+
+    .world-checkbox {
+      display: flex;
+      align-items: center;
+    }
+
+    .world-thumbnail {
+      width: 100px;
+      height: 75px;
+      flex-shrink: 0;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #0f1419;
+      position: relative;
+      cursor: pointer;
+    }
+
+    .world-thumbnail img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .no-thumbnail {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      color: #333;
+    }
+
+    .no-thumbnail::before {
+      content: '🖼️';
+    }
+
+    .status-badge {
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-size: 9px;
+      font-weight: bold;
+    }
+
+    .status-badge.private {
+      background: rgba(255, 87, 87, 0.9);
+      color: white;
+    }
+
+    .status-badge.deleted {
+      background: rgba(255, 87, 87, 0.9);
+      color: white;
+    }
+
+    .status-badge.public {
+      background: rgba(72, 187, 120, 0.9);
+      color: white;
+    }
+
+    .world-info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .world-info-text {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .world-name {
+      font-size: 13px;
+      font-weight: bold;
+      color: #1fd1ed;
+      margin-bottom: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 250px;
+    }
+
+    .world-author {
+      font-size: 11px;
+      color: #999;
+      margin-bottom: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 250px;
+    }
+
+    .world-folder-badge {
+      font-size: 10px;
+      color: #888;
+      background: #1a1f2e;
+      padding: 2px 6px;
+      border-radius: 3px;
+      display: inline-block;
+      margin-top: 2px;
+    }
+
+    .world-actions {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+      margin-top: 4px;
+    }
+
+    .btn-icon {
+      padding: 2px 6px;
+      border: none;
+      background: #222;
+      color: #888;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+
+    .btn-icon:hover {
+      background: #333;
+      color: #1fd1ed;
+    }
+
+    .btn-icon.delete {
+      margin-left: 4px;
+    }
+
+    .btn-icon.delete:hover {
+      background: #ff5757;
+      color: white;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #666;
+      font-size: 13px;
+    }
+
+    /* ページネーション */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      background: #0f1419;
+      border-top: 1px solid #222;
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .pagination-info {
+      color: #888;
+    }
+
+    .pagination-controls {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex: 1;
+      justify-content: center;
+    }
+
+    .pagination-settings {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      color: #888;
+      min-width: 85px;
+    }
+
+    .pagination-settings input {
+      width: 50px;
+      padding: 2px 4px;
+      background: #1a1f2e;
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #e0e0e0;
+      font-size: 11px;
+      text-align: center;
+    }
+
+    .pagination-settings input:focus {
+      outline: none;
+      border-color: #1fd1ed;
+    }
+
+    .pagination button {
+      padding: 4px 10px;
+      background: #1a1f2e;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #888;
+      cursor: pointer;
+      font-size: 11px;
+      transition: all 0.2s;
+    }
+
+    .pagination button:hover:not(:disabled) {
+      background: #222;
+      color: #1fd1ed;
+      border-color: #1fd1ed;
+    }
+
+    .pagination button:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    /* 選択中の操作バー */
+    .selection-actions {
+      display: none;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .selection-actions.visible {
+      display: flex;
+    }
+
+    .selection-count {
+      font-size: 12px;
+      color: #1fd1ed;
+      font-weight: bold;
+    }
+
+    .selection-actions button {
+      padding: 4px 10px;
+      background: #1a1f2e;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #e0e0e0;
+      cursor: pointer;
+      font-size: 11px;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .selection-actions button:hover {
+      background: #222;
+      border-color: #1fd1ed;
+      color: #1fd1ed;
+    }
+
+    .selection-actions button.danger:hover {
+      background: #ff5757;
+      border-color: #ff5757;
+      color: white;
+    }
+
+    /* 全体操作バー */
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      padding: 8px 16px 4px 16px;
+      background: #141920;
+      border-top: 1px solid #222;
+      flex-shrink: 0;
+    }
+
+    .actions-row-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+      padding: 4px 16px 8px 16px;
+      background: #141920;
+      flex-shrink: 0;
+    }
+
+    .actions button {
+      padding: 6px 10px;
+      background: #1a1f2e;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #e0e0e0;
+      cursor: pointer;
+      font-size: 11px;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .actions button:hover {
+      background: #222;
+      border-color: #1fd1ed;
+      color: #1fd1ed;
+    }
+
+    /* モーダル */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal.show {
+      display: flex;
+    }
+
+    .modal-content {
+      background: #1a1f2e;
+      border: 2px solid #1fd1ed;
+      border-radius: 12px;
+      padding: 20px;
+      max-width: 400px;
+      max-height: 85vh;
+      width: 90%;
+      box-shadow: 0 8px 32px rgba(31, 209, 237, 0.4);
+      overflow-y: auto;
+    }
+
+    .modal-header {
+      font-size: 16px;
+      color: #1fd1ed;
+      margin-bottom: 12px;
+      font-weight: bold;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .folder-id-badge {
+      font-size: 11px;
+      color: #666;
+      font-weight: normal;
+    }
+
+    .modal-body {
+      margin-bottom: 16px;
+      color: #e0e0e0;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .modal-input {
+      width: 100%;
+      padding: 8px;
+      background: #0f1419;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+
+    .modal-input:focus {
+      outline: none;
+      border-color: #1fd1ed;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .modal-actions .left {
+      margin-right: auto;
+    }
+
+    .modal-actions button {
+      padding: 6px 14px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.2s;
+    }
+
+    .modal-actions .btn-cancel {
+      background: #333;
+      color: #e0e0e0;
+    }
+
+    .modal-actions .btn-cancel:hover {
+      background: #444;
+    }
+
+    .modal-actions .btn-confirm {
+      background: #1fd1ed;
+      color: #0a0e1a;
+      font-weight: bold;
+    }
+
+    .modal-actions .btn-confirm:hover {
+      background: #17b8cc;
+    }
+
+    .modal-actions .btn-delete {
+      background: #ff5757;
+      color: white;
+    }
+
+    .modal-actions .btn-delete:hover {
+      background: #ff3333;
+    }
+
+    /* フォルダ選択 */
+    .folder-selection {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 12px 0;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .folder-option {
+      padding: 10px;
+      background: #0f1419;
+      border: 2px solid #333;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      user-select: none;
+    }
+
+    .folder-option:hover:not(.vrc-disabled) {
+      border-color: #1fd1ed;
+      background: #1a1f2e;
+    }
+
+    .folder-option.selected:not(.vrc-disabled) {
+      border-color: #1fd1ed;
+      background: #1a1f2e;
+      box-shadow: 0 0 12px rgba(31, 209, 237, 0.3);
+    }
+
+    .folder-option.none {
+      border-color: #8b7355;
+    }
+
+    .folder-option.none:hover {
+      border-color: #8b7355;
+      background: #2e2a1f;
+    }
+
+    .folder-option.none.selected {
+      border-color: #8b7355;
+      background: #2e2a1f;
+      box-shadow: 0 0 12px rgba(139, 115, 85, 0.3);
+    }
+
+    .folder-option.vrc {
+      border-color: #15495b;
+    }
+
+    .folder-option.vrc:hover:not(.vrc-disabled) {
+      border-color: #15495b;
+      background: #1f2e3e;
+    }
+
+    .folder-option.vrc.selected {
+      border-color: #15495b;
+      background: #1f2e3e;
+      box-shadow: 0 0 12px rgba(74, 144, 226, 0.3);
+    }
+
+    .folder-option.vrc.vrc-disabled {
+      border-color: #ff5757;
+      background: #3e1f1f;
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+
+    .folder-option-icon {
+      font-size: 18px;
+    }
+
+    .folder-option-name {
+      font-size: 12px;
+      color: #e0e0e0;
+      flex: 1;
+    }
+
+    /* インポート/エクスポート選択 */
+    .import-export-options {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin: 12px 0;
+    }
+
+    .import-export-option {
+      padding: 12px;
+      background: #0f1419;
+      border: 2px solid #333;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .import-export-option:hover {
+      border-color: #1fd1ed;
+      background: #1a1f2e;
+    }
+
+    .import-export-option-title {
+      font-size: 13px;
+      font-weight: bold;
+      color: #1fd1ed;
+      margin-bottom: 4px;
+    }
+
+    .import-export-option-desc {
+      font-size: 11px;
+      color: #888;
+    }
+
+    /* 通知 */
+    .notification {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      padding: 10px 16px;
+      background: #1a1f2e;
+      border: 2px solid #1fd1ed;
+      border-radius: 8px;
+      color: #e0e0e0;
+      font-size: 12px;
+      z-index: 2000;
+      opacity: 0;
+      transition: all 0.3s;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      pointer-events: none;
+      max-width: 80%;
+      white-space: pre-line;
+    }
+
+    .notification.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .notification.success {
+      border-color: #4caf50;
+    }
+
+    .notification.error {
+      border-color: #ff5757;
+    }
+
+    .notification.warning {
+      border-color: #ffa726;
+    }
+
+    /* スクロールバー */
+    .content::-webkit-scrollbar,
+    .sidebar::-webkit-scrollbar,
+    .folder-selection::-webkit-scrollbar,
+    .modal-content::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    .content::-webkit-scrollbar-track,
+    .sidebar::-webkit-scrollbar-track,
+    .folder-selection::-webkit-scrollbar-track,
+    .modal-content::-webkit-scrollbar-track {
+      background: #0f1419;
+    }
+
+    .content::-webkit-scrollbar-thumb,
+    .sidebar::-webkit-scrollbar-thumb,
+    .folder-selection::-webkit-scrollbar-thumb,
+    .modal-content::-webkit-scrollbar-thumb {
+      background: #333;
+      border-radius: 4px;
+    }
+
+    .content::-webkit-scrollbar-thumb:hover,
+    .sidebar::-webkit-scrollbar-thumb:hover,
+    .folder-selection::-webkit-scrollbar-thumb:hover,
+    .modal-content::-webkit-scrollbar-thumb:hover {
+      background: #1fd1ed;
+    }
+
+    /* 隠しファイル入力 */
+    #importFile {
+      display: none;
+    }
+  </style>
+</head>
+
+<body class="popup-mode">
+  <div class="container">
+    <!-- ヘッダー -->
+    <div class="header">
+      <h1>🌐 VRChat World Favorites Manager</h1>
+      <button class="open-window-btn" id="openWindowBtn">🪟 別ウィンドウで表示</button>
+    </div>
+
+    <!-- リスト編集中バナー -->
+    <div id="editingBanner" class="editing-banner" style="display: none;">
+      <span class="editing-icon">⚠️</span>
+      <span>リスト編集中 (<span class="change-count">0件の変更</span>)</span>
+    </div>
+
+    <div style="display: flex; flex: 1; min-height: 0;">
+      <!-- サイドバー -->
+      <div class="sidebar">
+        <div class="folder-tabs" id="folderTabs"></div>
+      </div>
+
+      <!-- メインコンテンツ -->
+      <div class="main-content">
+        <!-- 検索バー -->
+        <div class="search-bar">
+          <input type="text" id="searchInput" placeholder="🔍 Search by name, author, or ID...">
+        </div>
+
+        <!-- 全選択トグル + 選択中操作 -->
+        <div class="select-all-container">
+          <div class="checkbox-wrapper" id="selectAllWrapper">
+            <div class="custom-checkbox" id="selectAllCheckbox"></div>
+            <span class="select-all-label">全選択</span>
+          </div>
+
+          <!-- 並び替えドロップダウン -->
+          <div class="sort-dropdown">
+            <select id="sortSelect">
+              <option value="added">追加順</option>
+              <option value="name">ワールド名</option>
+              <option value="author">作者名</option>
+            </select>
+            <span class="sort-order" id="sortOrder">↓</span>
+          </div>
+
+          <!-- 右側: アイテム数と表示数 -->
+          <div style="margin-left: auto; display: flex; gap: 12px; align-items: center;">
+            <div class="pagination-info">
+              <span id="totalItems">0</span> items
+            </div>
+            <div class="pagination-settings">
+              <span>表示数</span>
+              <input type="number" id="itemsPerPageInput" min="1" max="100" value="20">
+            </div>
+          </div>
+        </div>
+
+        <!-- コンテンツエリア -->
+        <div class="content">
+          <div id="worldsList" class="worlds-list">
+            <div class="empty-state">Loading...</div>
+          </div>
+        </div>
+
+        <!-- ページネーション -->
+        <div class="pagination">
+          <div class="selection-actions" id="selectionActions">
+            <span class="selection-count" id="selectionCount">選択中: 0個</span>
+            <button id="updateSelectedBtn">🖼️ 再取得</button>
+            <button id="moveSelectedBtn">➡️ 移動</button>
+            <button id="deleteSelectedBtn" class="danger">🗑️</button>
+          </div>
+
+          <div class="pagination-controls" style="justify-content: flex-end;">
+            <button id="prevPageBtn">◀ Prev</button>
+            <span style="color: #888;">
+              <span id="currentPage">1</span> / <span id="totalPages">1</span>
+            </span>
+            <button id="nextPageBtn">Next ▶</button>
+          </div>
+        </div>
+
+        <!-- 全体操作バー -->
+        <div class="actions">
+          <button id="addWorldBtn">➕ ワールドを追加</button>
+          <button id="fetchDetailsBtn">🖼️ サムネイル取得</button>
+          <button id="syncBtn">🔄 VRChatと同期</button>
+          <button id="refreshBtn">🔃再表示</button>
+        </div>
+        <div class="actions-row-2">
+          <button id="importBtn">📥 インポート</button>
+          <button id="exportBtn">📤 エクスポート</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ワールド追加モーダル -->
+  <div id="addWorldModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">🌐 ワールドを追加</div>
+      <div class="modal-body">
+        <input type="text" id="worldIdInput" class="modal-input" placeholder="ワールドIDまたはURLを入力...">
+        <p style="margin-bottom: 12px; font-size: 11px; color: #888;">このワールドを保存するフォルダを選択してください:</p>
+        <div class="folder-selection" id="addWorldFolderList"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="addWorldConfirm" class="btn-confirm">追加</button>
+        <button id="addWorldCancel" class="btn-cancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- フォルダ名変更/削除モーダル -->
+  <div id="renameFolderModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span id="renameFolderTitle">✏️ フォルダ名を変更</span>
+        <span class="folder-id-badge" id="folderIdBadge"></span>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="folderNameInput" class="modal-input" placeholder="新しいフォルダ名を入力..." maxlength="30">
+      </div>
+      <div class="modal-actions">
+        <button id="deleteFolderBtn" class="btn-delete left">削除</button>
+        <button id="renameConfirm" class="btn-confirm">変更</button>
+        <button id="renameCancel" class="btn-cancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VRCフォルダ操作モーダル -->
+  <div id="vrcFolderModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>VRChat同期フォルダ</span>
+        <span class="folder-id-badge" id="vrcFolderIdBadge"></span>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom: 12px;">VRChat公式のお気に入りワールド一覧と連携します:</p>
+        <p style="margin-bottom: 8px; font-size: 11px; color: #888;">
+          <strong>📥 取得:</strong> お気に入りワールド一覧を取得します
+        </p>
+        <p style="margin-bottom: 12px; font-size: 11px; color: #888;">
+          <strong>⚠️ 反映:</strong> 変更したワールド一覧を上書きして同期します
+        </p>
+      </div>
+      <div class="modal-actions">
+        <button id="vrcFetchBtn" class="btn-confirm">📥 取得</button>
+        <button id="vrcSyncBtn" class="btn-confirm">⚠️ 反映</button>
+        <button id="vrcCancelBtn" class="btn-cancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- フォルダ移動モーダル -->
+  <div id="moveFolderModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">➡️ フォルダを選択</div>
+      <div class="modal-body">
+        <p style="margin-bottom: 12px;">移動先のフォルダを選択してください:</p>
+        <div class="folder-selection" id="moveFolderList"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="moveFolderConfirm" class="btn-confirm">移動</button>
+        <button id="moveFolderCancel" class="btn-cancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- インポート/エクスポート形式選択モーダル -->
+  <div id="importExportModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header" id="importExportTitle">📥 インポート</div>
+      <div class="modal-body">
+        <div class="import-export-options">
+          <div class="import-export-option" data-type="json">
+            <div class="import-export-option-title">JSON形式</div>
+            <div class="import-export-option-desc">拡張機能の標準形式(全データ)</div>
+          </div>
+          <div class="import-export-option" data-type="vrcx">
+            <div class="import-export-option-title">CSV形式</div>
+            <div class="import-export-option-desc">VRCX等(WorldID, World Name)</div>
+          </div>
+          <div class="import-export-option" data-type="vrchat">
+            <div class="import-export-option-title">VRChat公式と連携</div>
+            <div class="import-export-option-desc">お気に入りワールド一覧を取得(インポート)/反映(エクスポート)</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="importExportCancel" class="btn-cancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- フォルダ選択(インポート/エクスポート用)-->
+  <div id="folderSelectModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header" id="folderSelectTitle">📁 フォルダを選択</div>
+      <div class="modal-body">
+        <p style="margin-bottom: 12px;" id="folderSelectDesc">対象のフォルダを選択してください:</p>
+        <div class="folder-selection" id="folderSelectList"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="folderSelectConfirm" class="btn-confirm">OK</button>
+        <button id="folderSelectCancel" class="btn-cancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 削除確認モーダル -->
+  <div id="deleteModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">🗑️ 削除確認</div>
+      <div class="modal-body">
+        <strong id="deleteModalContent"></strong>
+      </div>
+      <div class="modal-actions">
+        <button id="deleteConfirm" class="btn-delete">削除</button>
+        <button id="deleteCancel" class="btn-cancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通知 -->
+  <div id="notification" class="notification"></div>
+
+  <!-- 隠しファイル入力 -->
+  <input type="file" id="importFile" accept=".json,.csv,.txt">
+
+  <script src="popup.js"></script>
+</body>
+
+</html>
