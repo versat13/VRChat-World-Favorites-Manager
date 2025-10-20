@@ -126,6 +126,7 @@ function setupEventListeners() {
   });
 
   document.getElementById('searchInput').addEventListener('input', handleSearch);
+  document.getElementById('searchClearBtn').addEventListener('click', clearSearch);
   document.getElementById('prevPageBtn').addEventListener('click', () => changePage(-1));
   document.getElementById('nextPageBtn').addEventListener('click', () => changePage(1));
   document.getElementById('selectAllWrapper').addEventListener('click', toggleSelectAll);
@@ -181,8 +182,6 @@ function setupEventListeners() {
   document.getElementById('importBtn').addEventListener('click', () => openImportExportModal('import'));
   document.getElementById('exportBtn').addEventListener('click', () => openImportExportModal('export'));
 
-  document.getElementById('addWorldConfirm').addEventListener('click', confirmAddWorld);
-  document.getElementById('addWorldCancel').addEventListener('click', () => closeModal('addWorldModal'));
 
   document.getElementById('renameConfirm').addEventListener('click', confirmRenameFolder);
   document.getElementById('renameCancel').addEventListener('click', () => closeModal('renameFolderModal'));
@@ -195,15 +194,12 @@ function setupEventListeners() {
   document.getElementById('vrcSyncBtn').addEventListener('click', syncToVRCFolder);
   document.getElementById('vrcCancelBtn').addEventListener('click', () => closeModal('vrcFolderModal'));
 
-  document.getElementById('moveFolderConfirm').addEventListener('click', confirmMoveFolder);
-  document.getElementById('moveFolderCancel').addEventListener('click', () => closeModal('moveFolderModal'));
 
   document.getElementById('importExportCancel').addEventListener('click', () => closeModal('importExportModal'));
   document.querySelectorAll('.import-export-option').forEach(option => {
     option.addEventListener('click', () => handleImportExportTypeSelect(option.dataset.type));
   });
 
-  document.getElementById('folderSelectConfirm').addEventListener('click', confirmFolderSelect);
   document.getElementById('folderSelectCancel').addEventListener('click', () => closeModal('folderSelectModal'));
 
   document.getElementById('deleteConfirm').addEventListener('click', confirmDelete);
@@ -276,7 +272,11 @@ function renderFolderTabs() {
     const folderId = tab.dataset.folderId;
 
     if (folderId === 'add') {
-      tab.addEventListener('click', addNewFolder);
+      tab.addEventListener('click', () => {
+        // シングルクリックでアクティブ表示のみ
+        switchFolder(folderId);
+      });
+      tab.addEventListener('dblclick', addNewFolder);
     } else {
       tab.addEventListener('click', () => switchFolder(folderId));
       tab.addEventListener('dblclick', () => openFolderEditModal(folderId));
@@ -725,6 +725,20 @@ function changePage(delta) {
 function handleSearch() {
   currentPage = 1;
   renderCurrentView();
+  updateSearchClearButton();
+}
+
+// 検索クリアボタンの表示更新
+function updateSearchClearButton() {
+  const searchInput = document.getElementById('searchInput');
+  const clearBtn = document.getElementById('searchClearBtn');
+  clearBtn.style.display = searchInput.value ? 'block' : 'none';
+}
+
+// 検索クリア
+function clearSearch() {
+  document.getElementById('searchInput').value = '';
+  handleSearch();
 }
 
 // ワールドページを開く
@@ -928,6 +942,8 @@ async function updateSelectedWorlds() {
 }
 
 
+
+
 // 選択中のワールドを削除
 function deleteSelectedWorlds() {
   if (selectedWorldIds.size === 0) return;
@@ -964,11 +980,6 @@ function deleteSelectedWorlds() {
   };
 
   openModal('deleteModal');
-}
-
-// お気に入り機能(準備中)
-function favoriteSelectedWorlds() {
-  showNotification('VRChatお気に入り機能は準備中です', 'info');
 }
 
 // 全ワールドの詳細を取得
@@ -1042,6 +1053,179 @@ async function fetchAllDetails() {
   renderCurrentView();
 }
 
+// === モーダルオーバーレイ作成 ===
+function createModalOverlay() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  return overlay;
+}
+
+// === フォルダオプション作成 ===
+function createFolderOption(id, name, selected = false, extraClass = '', badge = null) {
+  const option = document.createElement('div');
+  option.className = `folder-option ${extraClass} ${selected ? 'selected' : ''}`;
+  option.dataset.folderId = id;
+
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'folder-option-name';
+  nameSpan.textContent = name;
+  option.appendChild(nameSpan);
+
+  if (badge) {
+    const badgeSpan = document.createElement('span');
+    badgeSpan.className = 'folder-option-badge';
+    badgeSpan.textContent = badge;
+    option.appendChild(badgeSpan);
+  }
+
+  return option;
+}
+
+// === 汎用フォルダ選択モーダルを表示 ===
+function showFolderSelectModal(options) {
+  const {
+    title = '📁 フォルダを選択',
+    description = '対象のフォルダを選択してください:',
+    folders = [],
+    onConfirm = () => { },
+    onCancel = () => { },
+    currentFolderId = null
+  } = options;
+
+  // 既存のモーダルを削除
+  const existingModal = document.querySelector('.modal-overlay.folder-select-overlay');
+  if (existingModal) {
+    existingModal.remove();
+  }
+
+  const overlay = createModalOverlay();
+  overlay.classList.add('folder-select-overlay');
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-content folder-select-modal';
+
+  // タイトル
+  const titleDiv = document.createElement('div');
+  titleDiv.className = 'modal-title';
+  titleDiv.textContent = title;
+  modal.appendChild(titleDiv);
+
+  // 説明
+  const descriptionP = document.createElement('p');
+  descriptionP.className = 'modal-description';
+  descriptionP.textContent = description;
+  modal.appendChild(descriptionP);
+
+  // 現在のフォルダ表示
+  if (currentFolderId) {
+    const currentFolder = folders.find(f => f.id === currentFolderId);
+    const currentFolderDiv = document.createElement('p');
+    currentFolderDiv.className = 'current-folder-info';
+    currentFolderDiv.textContent = `✓ 現在「${currentFolder?.name || currentFolderId}」に登録済み`;
+    modal.appendChild(currentFolderDiv);
+  }
+
+  // フォルダリストコンテナ
+  const folderList = document.createElement('div');
+  folderList.className = 'folder-select-list';
+
+  // フォルダオプションを生成
+  folders.forEach((folder, index) => {
+    const isCurrentFolder = folder.id === currentFolderId;
+    const isDisabled = folder.disabled || folder.isDisabled || false;
+
+    const option = createFolderOption(
+      folder.id,
+      folder.name,
+      index === 0 && !currentFolderId,
+      folder.class || '',
+      isCurrentFolder ? '✓ 登録済み' : null
+    );
+
+    // 無効化されたフォルダ
+    if (isDisabled) {
+      option.classList.add('disabled');
+    }
+
+    // クリックイベント
+    if (!isDisabled) {
+      option.addEventListener('click', () => {
+        folderList.querySelectorAll('.folder-option').forEach(o => {
+          o.classList.remove('selected');
+        });
+        option.classList.add('selected');
+      });
+
+      // ダブルクリックで即確定
+      option.addEventListener('dblclick', () => {
+        overlay.remove();
+        onConfirm(folder.id);
+      });
+    }
+
+    folderList.appendChild(option);
+  });
+
+  modal.appendChild(folderList);
+
+  // ボタンコンテナ
+  const buttonContainer = document.createElement('div');
+  buttonContainer.className = 'modal-buttons';
+
+  // キャンセルボタン
+  const cancelButton = document.createElement('button');
+  cancelButton.className = 'btn secondary';
+  cancelButton.textContent = 'キャンセル';
+  cancelButton.onclick = () => {
+    overlay.remove();
+    onCancel();
+  };
+  buttonContainer.appendChild(cancelButton);
+
+  // 確定ボタン（VRC公式お気に入り以外の場合のみ表示）
+  if (!title.includes('VRChat')) {
+    const confirmButton = document.createElement('button');
+    confirmButton.className = 'btn primary';
+    confirmButton.textContent = '確定';
+    confirmButton.onclick = () => {
+      const selectedOption = folderList.querySelector('.folder-option.selected');
+      if (selectedOption) {
+        const folderId = selectedOption.dataset.folderId;
+        overlay.remove();
+        onConfirm(folderId);
+      } else {
+        showNotification('フォルダを選択してください', 'warning');
+      }
+    };
+    buttonContainer.appendChild(confirmButton);
+  }
+
+  modal.appendChild(buttonContainer);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  // オーバーレイクリックで閉じる
+  overlay.onclick = (e) => {
+    if (e.target === overlay) {
+      overlay.remove();
+      onCancel();
+    }
+  };
+
+  // VRC公式お気に入りの場合はシングルクリックで即確定
+  if (title.includes('VRChat')) {
+    folderList.querySelectorAll('.folder-option:not(.disabled)').forEach(option => {
+      option.addEventListener('click', () => {
+        const folderId = option.dataset.folderId;
+        setTimeout(() => {
+          overlay.remove();
+          onConfirm(folderId);
+        }, 200);
+      });
+    });
+  }
+}
+
 // ワールドを手動追加
 async function addWorldManual() {
   pendingWorldData = null;
@@ -1088,24 +1272,53 @@ function generateFolderOptions(includeVRC = true, includeAll = false) {
   const options = [];
 
   if (includeAll) {
-    options.push({ id: 'all', name: 'All(完全バックアップ)', class: '', disabled: false });
+    options.push({
+      id: 'all',
+      name: 'All(完全バックアップ)',
+      class: '',
+      disabled: false,
+      color: 'rgba(100, 150, 255, 0.2)'
+    });
   }
 
-  options.push({ id: 'none', name: '未分類', class: 'none', disabled: false });
+  options.push({
+    id: 'none',
+    name: '未分類',
+    class: 'none',
+    disabled: false,
+    color: 'rgba(150, 150, 150, 0.2)'
+  });
 
   folders.forEach(folder => {
-    options.push({ id: folder.id, name: folder.name, class: '', disabled: false });
+    options.push({
+      id: folder.id,
+      name: folder.name,
+      class: '',
+      disabled: false,
+      color: 'rgba(103, 215, 129, 0.2)'
+    });
   });
 
   if (includeVRC) {
     vrcFolders.forEach(folder => {
       const count = allWorlds.filter(w => w.folderId === folder.id).length;
-      const isOverLimit = count >= 100;
+      const isOverLimit = count >= 150;
+      const isOverSyncLimit = count >= 100;
+
+      let color = 'rgba(102, 126, 234, 0.2)'; // 青（通常）
+      if (isOverLimit) {
+        color = 'rgba(239, 68, 68, 0.2)'; // 赤（150件超）
+      } else if (isOverSyncLimit) {
+        color = 'rgba(245, 158, 11, 0.2)'; // オレンジ（100件超）
+      }
+
       options.push({
         id: folder.id,
-        name: `${folder.displayName}${isOverLimit ? ' (上限)' : ''}`,
+        name: `${folder.displayName}${isOverLimit ? ' (上限)' : isOverSyncLimit ? ' (同期不可)' : ''}`,
         class: isOverLimit ? 'vrc vrc-disabled' : 'vrc',
-        disabled: isOverLimit
+        disabled: isOverLimit,
+        isDisabled: isOverLimit,
+        color: color
       });
     });
   }
@@ -1115,44 +1328,30 @@ function generateFolderOptions(includeVRC = true, includeAll = false) {
 
 // ワールド追加モーダルを開く
 function openAddWorldModal() {
-  const container = document.getElementById('addWorldFolderList');
-  const options = generateFolderOptions(true, false);
+  const worldId = document.getElementById('worldIdInput').value.trim();
+  const world = pendingWorldData || allWorlds.find(w => w.id === worldId);
+  const currentFolderId = world?.folderId;
 
-  container.innerHTML = options.map((opt, index) => {
-    const classAttr = `${opt.class} ${index === 0 ? 'selected' : ''}`;
-    const styleAttr = opt.disabled ? 'style="opacity: 0.5; cursor: not-allowed;"' : '';
+  const folderOptions = generateFolderOptions(true, false);
 
-    return `
-      <div class="folder-option ${classAttr}" 
-           data-folder-id="${opt.id}"
-           ${styleAttr}>
-        <span class="folder-option-icon">📁</span>
-        <span class="folder-option-name">${opt.name}</span>
-      </div>
-    `;
-  }).join('');
-
-  container.querySelectorAll('.folder-option').forEach(option => {
-    const isDisabled = option.style.opacity === '0.5';
-    if (!isDisabled) {
-      option.addEventListener('click', () => {
-        container.querySelectorAll('.folder-option').forEach(o => o.classList.remove('selected'));
-        option.classList.add('selected');
-      });
-
-      option.addEventListener('dblclick', () => confirmAddWorld());
+  showFolderSelectModal({
+    title: '📁 追加先フォルダを選択',
+    description: 'ワールドを追加するフォルダを選択してください:',
+    folders: folderOptions,
+    currentFolderId: currentFolderId,
+    onConfirm: async (folderId) => {
+      await confirmAddWorldWithFolder(folderId);
+    },
+    onCancel: () => {
+      console.log('Add world cancelled');
     }
   });
-
-  openModal('addWorldModal');
-  setTimeout(() => document.getElementById('worldIdInput').focus(), 100);
 }
 
-// ワールド追加を確定
-async function confirmAddWorld() {
+
+// フォルダ選択後のワールド追加処理
+async function confirmAddWorldWithFolder(folderId) {
   const input = document.getElementById('worldIdInput').value.trim();
-  const selected = document.querySelector('#addWorldFolderList .folder-option.selected');
-  const folderId = selected ? selected.dataset.folderId : 'none';
 
   let worldId = null;
 
@@ -1201,13 +1400,12 @@ async function confirmAddWorld() {
       await loadData();
       renderFolderTabs();
       renderCurrentView();
-      closeModal('addWorldModal');
     } else if (response.reason === 'already_exists') {
       showNotification('このワールドは既に保存されています', 'warning');
     } else if (response.reason === 'private_world') {
       showNotification(`プライベート・削除済ワールドが含まれているため「${response.worldName}」は追加できませんでした`, 'warning');
     } else if (response.reason === 'vrc_limit_exceeded') {
-      showNotification('VRCフォルダが100件を超えています', 'error');
+      showNotification('VRCフォルダが150件を超えています', 'error');
     } else if (response.reason === 'sync_limit_exceeded') {
       showNotification('共有ストレージが800件を超えています', 'error');
     } else {
@@ -1244,12 +1442,8 @@ async function addNewFolder() {
 
 // 同期メニューを開く
 async function openSyncMenu() {
-  if (!confirm('VRChatの全お気に入りフォルダ(4つ)と拡張機能内のVRCフォルダを完全同期しますか?\n\n拡張機能内の状態がVRChat側に反映されます。')) {
-    return;
-  }
-
   try {
-    showNotification('同期を開始しています...', 'info');
+    showNotification('VRChatと同期中...', 'info');
 
     const response = await chrome.runtime.sendMessage({ type: 'syncAllFavorites' });
 
@@ -1366,6 +1560,16 @@ async function confirmChanges() {
     let errorCount = 0;
     const errors = [];
 
+    // VRCフォルダへの影響を先に記録（バッファクリア前に）
+    const vrcFoldersAffected = new Set();
+    editingBuffer.movedWorlds.forEach(m => {
+      if (m.fromFolder.startsWith('worlds')) vrcFoldersAffected.add(m.fromFolder);
+      if (m.toFolder.startsWith('worlds')) vrcFoldersAffected.add(m.toFolder);
+    });
+    editingBuffer.deletedWorlds.forEach(d => {
+      if (d.folderId.startsWith('worlds')) vrcFoldersAffected.add(d.folderId);
+    });
+
     // 削除処理
     for (const deletion of editingBuffer.deletedWorlds) {
       try {
@@ -1430,15 +1634,6 @@ async function confirmChanges() {
     }
 
     // VRChat同期（VRCフォルダに変更があった場合）
-    const vrcFoldersAffected = new Set();
-    editingBuffer.movedWorlds.forEach(m => {
-      if (m.fromFolder.startsWith('worlds')) vrcFoldersAffected.add(m.fromFolder);
-      if (m.toFolder.startsWith('worlds')) vrcFoldersAffected.add(m.toFolder);
-    });
-    editingBuffer.deletedWorlds.forEach(d => {
-      if (d.folderId.startsWith('worlds')) vrcFoldersAffected.add(d.folderId);
-    });
-
     if (vrcFoldersAffected.size > 0) {
       showNotification('VRChatに同期中...', 'info');
       await syncAllFavoritesInternal();
@@ -1606,10 +1801,6 @@ async function syncToVRCFolder() {
     return;
   }
 
-  if (!confirm(`VRChatのお気に入りフォルダに同期しますか?\n\n拡張機能内: ${count}個\n\nVRChat側のお気に入りが上書きされます。`)) {
-    return;
-  }
-
   try {
     showNotification('VRChatに同期中...', 'info');
 
@@ -1641,45 +1832,23 @@ async function syncToVRCFolder() {
 function openMoveFolderModal(worldIds) {
   currentMovingWorldIds = worldIds;
 
-  const container = document.getElementById('moveFolderList');
-  const options = generateFolderOptions(true, false);
+  const folderOptions = generateFolderOptions(true, false);
 
-  container.innerHTML = options.map((opt, index) => {
-    const classAttr = `${opt.class} ${index === 0 ? 'selected' : ''}`;
-    const styleAttr = opt.disabled ? 'style="opacity: 0.5; cursor: not-allowed;"' : '';
-
-    return `
-      <div class="folder-option ${classAttr}" 
-           data-folder-id="${opt.id}"
-           ${styleAttr}>
-        <span class="folder-option-icon">📁</span>
-        <span class="folder-option-name">${opt.name}</span>
-      </div>
-    `;
-  }).join('');
-
-  container.querySelectorAll('.folder-option').forEach(option => {
-    const isDisabled = option.style.opacity === '0.5';
-    if (!isDisabled) {
-      option.addEventListener('click', () => {
-        container.querySelectorAll('.folder-option').forEach(o => o.classList.remove('selected'));
-        option.classList.add('selected');
-      });
-
-      option.addEventListener('dblclick', () => confirmMoveFolder());
+  showFolderSelectModal({
+    title: '📁 移動先フォルダを選択',
+    description: `${worldIds.length}個のワールドを移動します:`,
+    folders: folderOptions,
+    onConfirm: async (folderId) => {
+      await confirmMoveFolderWithId(folderId);
+    },
+    onCancel: () => {
+      currentMovingWorldIds = [];
     }
   });
-
-  openModal('moveFolderModal');
 }
 
-// フォルダ移動を確定
-async function confirmMoveFolder() {
-  const selected = document.querySelector('#moveFolderList .folder-option.selected');
-  const toFolder = selected ? selected.dataset.folderId : null;
-
-  if (!toFolder) return;
-
+// フォルダ選択後の移動処理
+async function confirmMoveFolderWithId(toFolder) {
   try {
     let movedCount = 0;
     let skippedCount = 0;
@@ -1710,14 +1879,12 @@ async function confirmMoveFolder() {
         continue;
       }
 
-      // 編集バッファに追加
       editingBuffer.movedWorlds.push({
         worldId,
         fromFolder,
         toFolder
       });
 
-      // UI上で即座に移動
       world.folderId = toFolder;
       movedCount++;
     }
@@ -1736,7 +1903,6 @@ async function confirmMoveFolder() {
     renderFolderTabs();
     renderCurrentView();
     updateEditingState();
-    closeModal('moveFolderModal');
   } catch (error) {
     console.error('Failed to move worlds:', error);
     showNotification('移動に失敗しました', 'error');
@@ -1780,13 +1946,9 @@ function handleImportExportTypeSelect(type) {
 
 // VRChatインポート処理
 async function handleVRChatImport() {
-  if (!confirm('VRChatの全お気に入りフォルダ(4つ)から拡張機能内のVRCフォルダへワールドを取得しますか?')) {
-    return;
-  }
+  showNotification('VRChatから全フォルダを取得中...', 'info');
 
   try {
-    showNotification('VRChatから全フォルダを取得中...', 'info');
-
     const response = await chrome.runtime.sendMessage({ type: 'fetchAllVRCFolders' });
 
     if (response.success) {
@@ -1797,6 +1959,14 @@ async function handleVRChatImport() {
       await loadData();
       renderFolderTabs();
       renderCurrentView();
+
+      // サムネイル取得を自動実行
+      if (response.addedCount > 0) {
+        showNotification('サムネイル情報を取得中...', 'info');
+        setTimeout(() => {
+          fetchAllDetails();
+        }, 1000);
+      }
     } else {
       showNotification(`取得失敗: ${response.error}`, 'error');
     }
@@ -1808,102 +1978,37 @@ async function handleVRChatImport() {
 
 // エクスポート用フォルダ選択
 function openFolderSelectForExport(type) {
-  document.getElementById('folderSelectTitle').textContent = '📤 エクスポート対象フォルダ';
-  document.getElementById('folderSelectDesc').textContent =
-    'エクスポートするフォルダを選択してください:';
+  const folderOptions = generateFolderOptions(true, true);
 
-  const container = document.getElementById('folderSelectList');
-  const options = generateFolderOptions(true, true);
-
-  container.innerHTML = options.map((opt, index) => {
-    const classAttr = `${opt.class} ${index === 0 ? 'selected' : ''}`;
-
-    return `
-      <div class="folder-option ${classAttr}" data-folder-id="${opt.id}">
-        <span class="folder-option-icon">📁</span>
-        <span class="folder-option-name">${opt.name}</span>
-      </div>
-    `;
-  }).join('');
-
-  container.querySelectorAll('.folder-option').forEach(option => {
-    option.addEventListener('click', () => {
-      container.querySelectorAll('.folder-option').forEach(o => o.classList.remove('selected'));
-      option.classList.add('selected');
-    });
-
-    option.addEventListener('dblclick', () => {
-      const selected = document.querySelector('#folderSelectList .folder-option.selected');
-      const folderId = selected ? selected.dataset.folderId : 'all';
-      executeExport(type, folderId);
-      closeModal('folderSelectModal');
-    });
+  showFolderSelectModal({
+    title: '📤 エクスポート対象フォルダ',
+    description: 'エクスポートするフォルダを選択してください:',
+    folders: folderOptions,
+    onConfirm: async (folderId) => {
+      await executeExport(type, folderId);
+    },
+    onCancel: () => {
+      console.log('Export cancelled');
+    }
   });
-
-  const confirmBtn = document.getElementById('folderSelectConfirm');
-  confirmBtn.onclick = () => {
-    const selected = document.querySelector('#folderSelectList .folder-option.selected');
-    const folderId = selected ? selected.dataset.folderId : 'all';
-    executeExport(type, folderId);
-    closeModal('folderSelectModal');
-  };
-
-  openModal('folderSelectModal');
 }
 
 // インポート用フォルダ選択
 function openFolderSelectForImport(type) {
-  document.getElementById('folderSelectTitle').textContent = '📥 インポート先フォルダ';
-  document.getElementById('folderSelectDesc').textContent =
-    'インポート先のフォルダを選択してください:';
+  const folderOptions = generateFolderOptions(true, false);
 
-  const container = document.getElementById('folderSelectList');
-  const options = generateFolderOptions(true, false);
-
-  container.innerHTML = options.map((opt, index) => {
-    const classAttr = `${opt.class} ${index === 0 ? 'selected' : ''}`;
-    const styleAttr = opt.disabled ? 'style="opacity: 0.5; cursor: not-allowed;"' : '';
-
-    return `
-      <div class="folder-option ${classAttr}" 
-           data-folder-id="${opt.id}"
-           ${styleAttr}>
-        <span class="folder-option-icon">📁</span>
-        <span class="folder-option-name">${opt.name}</span>
-      </div>
-    `;
-  }).join('');
-
-  container.querySelectorAll('.folder-option').forEach(option => {
-    const isDisabled = option.style.opacity === '0.5';
-    if (!isDisabled) {
-      option.addEventListener('click', () => {
-        container.querySelectorAll('.folder-option').forEach(o => o.classList.remove('selected'));
-        option.classList.add('selected');
-      });
-
-      option.addEventListener('dblclick', () => {
-        const selected = document.querySelector('#folderSelectList .folder-option.selected');
-        const folderId = selected ? selected.dataset.folderId : 'none';
-        closeModal('folderSelectModal');
-
-        document.getElementById('importFile').dataset.targetFolder = folderId;
-        document.getElementById('importFile').click();
-      });
+  showFolderSelectModal({
+    title: '📥 インポート先フォルダ',
+    description: 'インポート先のフォルダを選択してください:',
+    folders: folderOptions,
+    onConfirm: (folderId) => {
+      document.getElementById('importFile').dataset.targetFolder = folderId;
+      document.getElementById('importFile').click();
+    },
+    onCancel: () => {
+      console.log('Import cancelled');
     }
   });
-
-  const confirmBtn = document.getElementById('folderSelectConfirm');
-  confirmBtn.onclick = () => {
-    const selected = document.querySelector('#folderSelectList .folder-option.selected');
-    const folderId = selected ? selected.dataset.folderId : 'none';
-    closeModal('folderSelectModal');
-
-    document.getElementById('importFile').dataset.targetFolder = folderId;
-    document.getElementById('importFile').click();
-  };
-
-  openModal('folderSelectModal');
 }
 
 // エクスポート実行
@@ -1915,7 +2020,7 @@ async function executeExport(type, folderId) {
         const local = await chrome.storage.local.get(['vrcWorlds', 'worldDetails']);
 
         const exportData = {
-          version: '7.0',
+          version: '7.2',
           syncWorlds: sync.worlds || [],
           folders: sync.folders || [],
           vrcFolderData: sync.vrcFolderData || {},
@@ -2127,6 +2232,14 @@ async function handleFileImport(event) {
     await loadData();
     renderFolderTabs();
     renderCurrentView();
+
+    // サムネイル取得を自動実行
+    if (addedCount > 0) {
+      showNotification('サムネイル情報を取得中...', 'info');
+      setTimeout(() => {
+        fetchAllDetails();
+      }, 1000);
+    }
 
   } catch (error) {
     console.error('Import failed:', error);

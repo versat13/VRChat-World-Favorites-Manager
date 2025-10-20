@@ -73,19 +73,40 @@
 
     /* リスト編集中バナー */
     .editing-banner {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 8px;
-      padding: 12px 20px;
+      padding: 6px 16px;
+      /* 薄く */
       background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
       color: #78350f;
       font-weight: 600;
-      border-bottom: 2px solid #d97706;
-      animation: pulse-banner 2s ease-in-out infinite;
+      border-top: 2px solid #d97706;
+      line-height: 1.2;
+      /* 詰めてコンパクトに */
+      animation: slide-up 0.3s ease-out;
+      z-index: 1000;
     }
 
     .editing-icon {
       font-size: 1.2em;
+    }
+
+    @keyframes slide-up {
+      from {
+        transform: translateY(100%);
+        opacity: 0;
+      }
+
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
     }
 
     @keyframes pulse-banner {
@@ -159,14 +180,14 @@
     }
 
     /* 検索バー */
-    .search-bar {
+    .search-wrapper {
       padding: 8px 16px;
       background: #141920;
       border-bottom: 1px solid #222;
       flex-shrink: 0;
     }
 
-    .search-bar input {
+    .search-wrapper input {
       width: 100%;
       padding: 6px 10px;
       background: #1a1f2e;
@@ -176,10 +197,37 @@
       font-size: 13px;
     }
 
-    .search-bar input:focus {
+    .search-wrapper input:focus {
       outline: none;
       border-color: #1fd1ed;
       box-shadow: 0 0 0 2px rgba(31, 209, 237, 0.2);
+    }
+
+    /* 検索クリアボタン */
+    .search-wrapper {
+      position: relative;
+      width: 100%;
+    }
+
+    .search-clear-btn {
+      position: absolute;
+      right: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255, 255, 255, 0.1);
+      border: none;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      color: #aaa;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+
+    .search-clear-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+      color: #fff;
     }
 
     /* フォルダタブ(縦配置) */
@@ -218,6 +266,7 @@
     }
 
     /* VRCフォルダの状態表示 */
+    /* VRCフォルダカラー */
     .folder-tab.vrc-folder {
       background: #07191d;
       border-color: #103b48;
@@ -782,6 +831,21 @@
       display: flex;
     }
 
+    /* 動的に生成されるモーダル用のオーバーレイ */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(4px);
+      z-index: 10001;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
     .modal-content {
       background: #1a1f2e;
       border: 2px solid #1fd1ed;
@@ -794,6 +858,14 @@
       overflow-y: auto;
     }
 
+    /* フォルダ選択モーダル専用 */
+    .folder-select-modal {
+      max-height: 80vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
     .modal-header {
       font-size: 16px;
       color: #1fd1ed;
@@ -802,6 +874,21 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+    }
+
+    /* モーダルタイトル */
+    .modal-title {
+      color: #1fd1ed;
+      margin: 0 0 16px 0;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    /* モーダル説明文 */
+    .modal-description {
+      color: #aaa;
+      margin: 0 0 16px 0;
+      font-size: 14px;
     }
 
     .folder-id-badge {
@@ -880,6 +967,54 @@
       background: #ff3333;
     }
 
+    /* モーダルボタンコンテナ */
+    .modal-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .modal-buttons .btn {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+
+    .modal-buttons .btn.secondary {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid #666;
+      color: #aaa;
+    }
+
+    .modal-buttons .btn.secondary:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .modal-buttons .btn.primary {
+      background: #1fd1ed;
+      border: 1px solid #1fd1ed;
+      color: #0a0e14;
+      font-weight: 600;
+    }
+
+    .modal-buttons .btn.primary:hover {
+      background: #18b8d0;
+    }
+
+    /* 現在のフォルダ情報表示 */
+    .current-folder-info {
+      color: #67d781;
+      margin: 0 0 12px 0;
+      font-size: 12px;
+      background: rgba(103, 215, 129, 0.1);
+      padding: 8px;
+      border-radius: 4px;
+    }
+
     /* フォルダ選択 */
     .folder-selection {
       display: flex;
@@ -890,28 +1025,46 @@
       overflow-y: auto;
     }
 
+    /* フォルダ選択リスト（動的生成用） */
+    .folder-select-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 12px 0;
+      max-height: 300px;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
     .folder-option {
-      padding: 10px;
+      padding: 12px 16px;
       background: #0f1419;
       border: 2px solid #333;
       border-radius: 8px;
       cursor: pointer;
       transition: all 0.2s;
       display: flex;
+      justify-content: space-between;
       align-items: center;
       gap: 8px;
       user-select: none;
     }
 
-    .folder-option:hover:not(.vrc-disabled) {
+    .folder-option:hover:not(.vrc-disabled):not(.disabled) {
       border-color: #1fd1ed;
       background: #1a1f2e;
     }
 
-    .folder-option.selected:not(.vrc-disabled) {
+    .folder-option.selected:not(.vrc-disabled):not(.disabled) {
       border-color: #1fd1ed;
       background: #1a1f2e;
       box-shadow: 0 0 12px rgba(31, 209, 237, 0.3);
+    }
+
+    .folder-option.disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      pointer-events: none;
     }
 
     .folder-option.none {
@@ -956,9 +1109,17 @@
     }
 
     .folder-option-name {
-      font-size: 12px;
+      font-size: 14px;
       color: #e0e0e0;
       flex: 1;
+    }
+
+    .folder-option-badge {
+      color: #67d781;
+      font-size: 12px;
+      padding: 2px 8px;
+      background: rgba(103, 215, 129, 0.1);
+      border-radius: 4px;
     }
 
     /* インポート/エクスポート選択 */
@@ -1079,7 +1240,7 @@
       <button class="open-window-btn" id="openWindowBtn">🪟 別ウィンドウで表示</button>
     </div>
 
-    <!-- リスト編集中バナー -->
+    <!-- リスト編集中バナー（bodyの最下部） -->
     <div id="editingBanner" class="editing-banner" style="display: none;">
       <span class="editing-icon">⚠️</span>
       <span>リスト編集中 (<span class="change-count">0件の変更</span>)</span>
@@ -1094,8 +1255,9 @@
       <!-- メインコンテンツ -->
       <div class="main-content">
         <!-- 検索バー -->
-        <div class="search-bar">
-          <input type="text" id="searchInput" placeholder="🔍 Search by name, author, or ID...">
+        <div class="search-wrapper">
+          <input type="text" id="searchInput" placeholder="🔍 ワールド名・作者名・IDで検索...">
+          <button id="searchClearBtn" class="search-clear-btn" style="display: none;">✕</button>
         </div>
 
         <!-- 全選択トグル + 選択中操作 -->
