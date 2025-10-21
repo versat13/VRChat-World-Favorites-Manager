@@ -1,27 +1,29 @@
-// background.js - v7.0 (VRChat API連携強化版 - 前半)
+// background.js - v8.0 (前半: 初期化〜基本操作)
 
-console.log('[Background] VRChat World Favorites Manager v7.0 loaded');
+console.log('[Background] VRChat World Favorites Manager v8.0 loaded');
 
-// ストレージ構造:
-// chrome.storage.sync (100KB, デバイス間同期):
-//   folders: [{ id: "folder1", name: "..." }]
-//   worlds: [{ id: "wrld_xxx", folderId: "folder1 or none" }]
-//   vrcFolderData: { worlds1: { name: "worlds1", displayName: "Favorite World 1" }, ... }
-//
-// chrome.storage.local (無制限, ローカル):
-//   vrcWorlds: [{ id, name, authorName, releaseStatus, thumbnailImageUrl, folderId: "worlds1~4", favoriteId }]
-//   worldDetails: { "wrld_xxx": { name, authorName, ... } }
-
+// ========================================
+// 定数定義
+// ========================================
 const SYNC_WORLD_LIMIT = 800;
 const VRC_FOLDER_LIMIT = 150;
 const VRC_FOLDER_SYNC_LIMIT = 100;
 const API_BASE = 'https://vrchat.com/api/1';
 
-// レート制限対策用ヘルパー
+// バッチサイズ（安全重視）
+const BATCH_SIZE = {
+  sync: 50,   // syncストレージ: 50件ずつ
+  local: 100  // localストレージ: 100件ずつ
+};
+
+// レート制限対策
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// 拡張機能インストール時
+// ========================================
+// 初期化処理
+// ========================================
 chrome.runtime.onInstalled.addListener(() => {
+  // コンテキストメニュー作成
   chrome.contextMenus.create({
     id: 'vrchat-fav-add',
     title: 'このワールドをお気に入りに追加',
@@ -45,7 +47,7 @@ chrome.runtime.onInstalled.addListener(() => {
   initializeStorage();
 });
 
-// 初期化
+// ストレージ初期化
 async function initializeStorage() {
   const sync = await chrome.storage.sync.get(['folders', 'worlds', 'vrcFolderData']);
   const local = await chrome.storage.local.get(['vrcWorlds', 'worldDetails']);
@@ -67,7 +69,9 @@ async function initializeStorage() {
   }
 }
 
+// ========================================
 // コンテキストメニュー
+// ========================================
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if ((info.menuItemId === 'vrchat-fav-add' || info.menuItemId === 'vrchat-fav-add-link') && tab) {
     let worldUrl = info.pageUrl || info.linkUrl;
@@ -89,7 +93,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 });
 
+// ========================================
 // メッセージハンドラ
+// ========================================
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('[Background] Message:', request.type);
 
@@ -111,6 +117,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
     case 'moveWorld':
       moveWorld(request.worldId, request.fromFolder, request.toFolder, request.newFavoriteId, sendResponse);
+      return true;
+    case 'batchUpdateWorlds':
+      batchUpdateWorlds(request.changes, sendResponse);
       return true;
     case 'getFolders':
       getFolders(sendResponse);
@@ -139,12 +148,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'syncAllFavorites':
       syncAllFavorites(sendResponse);
       return true;
+    case 'detectDuplicates':
+      detectDuplicates(sendResponse);
+      return true;
     default:
       sendResponse({ error: 'Unknown message type' });
   }
 });
 
-// 全ワールド取得(統合)
+// ========================================
+// 全ワールド取得
+// ========================================
 async function getAllWorlds(sendResponse) {
   try {
     const sync = await chrome.storage.sync.get(['worlds']);
@@ -171,7 +185,22 @@ async function getAllWorlds(sendResponse) {
   }
 }
 
-// ワールド追加
+// ========================================
+// VRCワールド一覧取得
+// ========================================
+async function getVRCWorlds(sendResponse) {
+  try {
+    const local = await chrome.storage.local.get(['vrcWorlds']);
+    sendResponse({ vrcWorlds: local.vrcWorlds || [] });
+  } catch (error) {
+    console.error('[Background] Error getting VRC worlds:', error);
+    sendResponse({ error: error.message, vrcWorlds: [] });
+  }
+}
+
+// ========================================
+// ワールド追加（重複チェック付き）
+// ========================================
 async function addWorld(world, sendResponse) {
   try {
     if (!world || !world.id || !world.name) {
@@ -181,24 +210,42 @@ async function addWorld(world, sendResponse) {
 
     const folderId = world.folderId || 'none';
     
+    // グローバル重複チェック
     const allWorlds = await getAllWorldsInternal();
-    if (allWorlds.some(w => w.id === world.id)) {
-      sendResponse({ success: false, reason: 'already_exists' });
+    const existing = allWorlds.find(w => w.id === world.id);
+    
+    if (existing) {
+      if (existing.folderId === folderId) {
+        sendResponse({ success: false, reason: 'already_exists_same_folder' });
+        return;
+      }
+      
+      // 他のフォルダに存在 → 自動移動
+      sendResponse({ 
+        success: false, 
+        reason: 'already_exists_different_folder',
+        existingFolder: existing.folderId,
+        worldName: world.name
+      });
       return;
     }
     
+    // VRCフォルダへの追加制限
     if (folderId.startsWith('worlds')) {
+      // プライベート/削除済みチェック
       if (world.releaseStatus === 'private' || world.releaseStatus === 'deleted') {
         sendResponse({ success: false, reason: 'private_world', worldName: world.name });
         return;
       }
       
+      // 上限チェック
       const vrcWorlds = await getVRCFolderWorlds(folderId);
       if (vrcWorlds.length >= VRC_FOLDER_LIMIT) {
         sendResponse({ success: false, reason: 'vrc_limit_exceeded' });
         return;
       }
       
+      // VRCフォルダに追加
       const local = await chrome.storage.local.get(['vrcWorlds']);
       const vrcWorldsList = local.vrcWorlds || [];
       vrcWorldsList.push({
@@ -213,6 +260,7 @@ async function addWorld(world, sendResponse) {
       await chrome.storage.local.set({ vrcWorlds: vrcWorldsList });
       
     } else {
+      // 通常フォルダに追加
       const sync = await chrome.storage.sync.get(['worlds']);
       const syncWorlds = sync.worlds || [];
       
@@ -243,7 +291,9 @@ async function addWorld(world, sendResponse) {
   }
 }
 
+// ========================================
 // ワールド削除
+// ========================================
 async function removeWorld(worldId, folderId, sendResponse) {
   try {
     if (folderId.startsWith('worlds')) {
@@ -270,7 +320,9 @@ async function removeWorld(worldId, folderId, sendResponse) {
   }
 }
 
-// ワールド更新
+// ========================================
+// ワールド更新（詳細情報のみ）
+// ========================================
 async function updateWorld(world, sendResponse) {
   try {
     if (!world || !world.id) {
@@ -281,23 +333,26 @@ async function updateWorld(world, sendResponse) {
     const folderId = world.folderId;
     
     if (folderId.startsWith('worlds')) {
+      // VRCフォルダの場合
       const local = await chrome.storage.local.get(['vrcWorlds']);
       const vrcWorlds = local.vrcWorlds || [];
       const index = vrcWorlds.findIndex(w => w.id === world.id);
       
       if (index !== -1) {
+        // 既存のreleaseStatusを保持（プライベート/削除済みでも残す）
         vrcWorlds[index] = {
           ...vrcWorlds[index],
           name: world.name || vrcWorlds[index].name,
-          authorName: world.authorName || vrcWorlds[index].authorName,
-          releaseStatus: world.releaseStatus || vrcWorlds[index].releaseStatus,
-          thumbnailImageUrl: world.thumbnailImageUrl || vrcWorlds[index].thumbnailImageUrl,
+          authorName: world.authorName !== undefined ? world.authorName : vrcWorlds[index].authorName,
+          releaseStatus: world.releaseStatus !== undefined ? world.releaseStatus : vrcWorlds[index].releaseStatus,
+          thumbnailImageUrl: world.thumbnailImageUrl !== undefined ? world.thumbnailImageUrl : vrcWorlds[index].thumbnailImageUrl,
           favoriteId: world.favoriteId !== undefined ? world.favoriteId : vrcWorlds[index].favoriteId
         };
         await chrome.storage.local.set({ vrcWorlds });
       }
       
     } else {
+      // 通常フォルダの場合
       const local = await chrome.storage.local.get(['worldDetails']);
       const details = local.worldDetails || {};
       details[world.id] = {
@@ -317,7 +372,9 @@ async function updateWorld(world, sendResponse) {
   }
 }
 
-// ワールド移動
+// ========================================
+// ワールド移動（個別）
+// ========================================
 async function moveWorld(worldId, fromFolder, toFolder, newFavoriteId, sendResponse) {
   try {
     if (fromFolder === toFolder) {
@@ -333,21 +390,22 @@ async function moveWorld(worldId, fromFolder, toFolder, newFavoriteId, sendRespo
       return;
     }
     
-    // VRCフォルダ間の移動チェック（プライベート/削除済ワールドは移動不可）
-    const isVRCToVRC = fromFolder.startsWith('worlds') && toFolder.startsWith('worlds') && fromFolder !== toFolder;
-    if (isVRCToVRC && (world.releaseStatus === 'private' || world.releaseStatus === 'deleted')) {
-      sendResponse({ success: false, reason: 'private_world_vrc_move', worldName: world.name });
+    // プライベート/削除済みワールドの移動制限
+    const isVRCToVRC = fromFolder.startsWith('worlds') && toFolder.startsWith('worlds');
+    const isToVRC = toFolder.startsWith('worlds');
+    
+    if ((isVRCToVRC || isToVRC) && 
+        (world.releaseStatus === 'private' || world.releaseStatus === 'deleted')) {
+      sendResponse({ 
+        success: false, 
+        reason: 'private_world_move_restricted', 
+        worldName: world.name 
+      });
       return;
     }
     
-    if (!isVRCToVRC) {
-      if (allWorlds.some(w => w.id === worldId && w.folderId === toFolder)) {
-        sendResponse({ success: false, reason: 'already_exists' });
-        return;
-      }
-    }
-    
-    await removeWorldInternal(worldId, fromFolder);
+    // 移動実行
+    await removeWorldFromFolder(worldId, fromFolder);
     
     const worldToAdd = { 
       ...world, 
@@ -355,7 +413,7 @@ async function moveWorld(worldId, fromFolder, toFolder, newFavoriteId, sendRespo
       favoriteId: newFavoriteId || world.favoriteId
     };
     
-    const addResult = await addWorldInternal(worldToAdd);
+    const addResult = await addWorldToFolder(worldToAdd);
     
     if (!addResult.success) {
       sendResponse(addResult);
@@ -370,7 +428,9 @@ async function moveWorld(worldId, fromFolder, toFolder, newFavoriteId, sendRespo
   }
 }
 
-// フォルダ一覧取得
+// ========================================
+// フォルダ操作
+// ========================================
 async function getFolders(sendResponse) {
   try {
     const sync = await chrome.storage.sync.get(['folders', 'vrcFolderData']);
@@ -398,18 +458,6 @@ async function getFolders(sendResponse) {
   }
 }
 
-// VRCワールド一覧取得
-async function getVRCWorlds(sendResponse) {
-  try {
-    const local = await chrome.storage.local.get(['vrcWorlds']);
-    sendResponse({ vrcWorlds: local.vrcWorlds || [] });
-  } catch (error) {
-    console.error('[Background] Error getting VRC worlds:', error);
-    sendResponse({ error: error.message, vrcWorlds: [] });
-  }
-}
-
-// フォルダ追加
 async function addFolder(sendResponse) {
   try {
     const sync = await chrome.storage.sync.get(['folders']);
@@ -440,7 +488,6 @@ async function addFolder(sendResponse) {
   }
 }
 
-// フォルダ削除
 async function removeFolder(folderId, sendResponse) {
   try {
     const sync = await chrome.storage.sync.get(['folders', 'worlds']);
@@ -464,7 +511,6 @@ async function removeFolder(folderId, sendResponse) {
   }
 }
 
-// フォルダ名変更
 async function renameFolder(folderId, newName, sendResponse) {
   try {
     const sync = await chrome.storage.sync.get(['folders']);
@@ -484,9 +530,161 @@ async function renameFolder(folderId, newName, sendResponse) {
     sendResponse({ success: false, error: error.message });
   }
 }
-// background.js - v7.1 (VRChat API連携強化版 - 後半 - 修正版)
+// background.js - v8.0 (後半: バッチ処理・VRC API・ヘルパー関数)
 
+// ========================================
+// バッチ処理（書き込み回数削減の核心）
+// ========================================
+async function batchUpdateWorlds(changes, sendResponse) {
+  try {
+    const { movedWorlds = [], deletedWorlds = [] } = changes;
+    
+    if (movedWorlds.length === 0 && deletedWorlds.length === 0) {
+      sendResponse({ success: true, movedCount: 0, deletedCount: 0 });
+      return;
+    }
+    
+    console.log(`[Background] Batch update: ${movedWorlds.length} moves, ${deletedWorlds.length} deletes`);
+    
+    let successCount = 0;
+    let errorCount = 0;
+    const errors = [];
+    
+    // syncとlocalに分類
+    const syncChanges = [];
+    const localChanges = [];
+    
+    for (const move of movedWorlds) {
+      const isSyncChange = !move.fromFolder.startsWith('worlds') || !move.toFolder.startsWith('worlds');
+      if (isSyncChange) {
+        syncChanges.push({ type: 'move', ...move });
+      } else {
+        localChanges.push({ type: 'move', ...move });
+      }
+    }
+    
+    for (const deletion of deletedWorlds) {
+      if (deletion.folderId.startsWith('worlds')) {
+        localChanges.push({ type: 'delete', ...deletion });
+      } else {
+        syncChanges.push({ type: 'delete', ...deletion });
+      }
+    }
+    
+    // Syncストレージをバッチ処理（50件ずつ）
+    for (let i = 0; i < syncChanges.length; i += BATCH_SIZE.sync) {
+      const batch = syncChanges.slice(i, i + BATCH_SIZE.sync);
+      const result = await processSyncBatch(batch);
+      successCount += result.success;
+      errorCount += result.errors;
+      errors.push(...result.errorMessages);
+      await sleep(500); // レート制限対策
+    }
+    
+    // Localストレージをバッチ処理（100件ずつ）
+    for (let i = 0; i < localChanges.length; i += BATCH_SIZE.local) {
+      const batch = localChanges.slice(i, i + BATCH_SIZE.local);
+      const result = await processLocalBatch(batch);
+      successCount += result.success;
+      errorCount += result.errors;
+      errors.push(...result.errorMessages);
+      await sleep(100);
+    }
+    
+    console.log(`[Background] Batch complete: ${successCount} success, ${errorCount} errors`);
+    
+    sendResponse({ 
+      success: errorCount === 0, 
+      movedCount: successCount,
+      errorCount: errorCount,
+      errors: errors.length > 0 ? errors : null
+    });
+  } catch (error) {
+    console.error('[Background] Batch update error:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+// Syncストレージバッチ処理
+async function processSyncBatch(batch) {
+  try {
+    const sync = await chrome.storage.sync.get(['worlds']);
+    const local = await chrome.storage.local.get(['worldDetails']);
+    
+    let syncWorlds = sync.worlds || [];
+    let worldDetails = local.worldDetails || {};
+    
+    let successCount = 0;
+    const errorMessages = [];
+    
+    for (const change of batch) {
+      try {
+        if (change.type === 'delete') {
+          syncWorlds = syncWorlds.filter(w => w.id !== change.worldId);
+          delete worldDetails[change.worldId];
+          successCount++;
+        } else if (change.type === 'move') {
+          const index = syncWorlds.findIndex(w => w.id === change.worldId);
+          if (index !== -1) {
+            syncWorlds[index].folderId = change.toFolder;
+            successCount++;
+          }
+        }
+      } catch (e) {
+        errorMessages.push(`${change.worldId}: ${e.message}`);
+      }
+    }
+    
+    // 1回の書き込み
+    await chrome.storage.sync.set({ worlds: syncWorlds });
+    await chrome.storage.local.set({ worldDetails });
+    
+    return { success: successCount, errors: batch.length - successCount, errorMessages };
+  } catch (error) {
+    console.error('[Background] Sync batch error:', error);
+    return { success: 0, errors: batch.length, errorMessages: [error.message] };
+  }
+}
+
+// Localストレージバッチ処理
+async function processLocalBatch(batch) {
+  try {
+    const local = await chrome.storage.local.get(['vrcWorlds']);
+    let vrcWorlds = local.vrcWorlds || [];
+    
+    let successCount = 0;
+    const errorMessages = [];
+    
+    for (const change of batch) {
+      try {
+        if (change.type === 'delete') {
+          vrcWorlds = vrcWorlds.filter(w => w.id !== change.worldId);
+          successCount++;
+        } else if (change.type === 'move') {
+          const index = vrcWorlds.findIndex(w => w.id === change.worldId);
+          if (index !== -1) {
+            vrcWorlds[index].folderId = change.toFolder;
+            successCount++;
+          }
+        }
+      } catch (e) {
+        errorMessages.push(`${change.worldId}: ${e.message}`);
+      }
+    }
+    
+    // 1回の書き込み
+    await chrome.storage.local.set({ vrcWorlds });
+    
+    return { success: successCount, errors: batch.length - successCount, errorMessages };
+  } catch (error) {
+    console.error('[Background] Local batch error:', error);
+    return { success: 0, errors: batch.length, errorMessages: [error.message] };
+  }
+}
+
+// ========================================
 // ストレージ統計
+// ========================================
 async function getStorageStats(sendResponse) {
   try {
     const syncBytes = await chrome.storage.sync.getBytesInUse();
@@ -524,11 +722,43 @@ async function getStorageStats(sendResponse) {
   }
 }
 
-// === VRChat API ヘルパー関数 ===
+// ========================================
+// 重複検出
+// ========================================
+async function detectDuplicates(sendResponse) {
+  try {
+    const allWorlds = await getAllWorldsInternal();
+    const worldMap = new Map();
+    const duplicates = [];
+    
+    for (const world of allWorlds) {
+      if (worldMap.has(world.id)) {
+        const existing = worldMap.get(world.id);
+        duplicates.push({
+          worldId: world.id,
+          worldName: world.name,
+          folders: [existing.folderId, world.folderId]
+        });
+      } else {
+        worldMap.set(world.id, world);
+      }
+    }
+    
+    console.log(`[Background] Found ${duplicates.length} duplicates`);
+    sendResponse({ duplicates });
+  } catch (error) {
+    console.error('[Background] Error detecting duplicates:', error);
+    sendResponse({ error: error.message, duplicates: [] });
+  }
+}
+
+// ========================================
+// VRChat API関連
+// ========================================
 
 // VRChatフォルダグループ一覧取得
 async function fetchVRChatFavoriteGroups() {
-  console.log('[API] お気に入りフォルダグループ一覧の取得開始...');
+  console.log('[API] Fetching favorite groups...');
   const response = await fetch(`${API_BASE}/favorite/groups`, {
     method: 'GET',
     credentials: 'include'
@@ -536,19 +766,19 @@ async function fetchVRChatFavoriteGroups() {
   
   if (!response.ok) {
     if (response.status === 401) throw new Error('VRChatにログインしていません');
-    throw new Error(`グループ取得APIエラー: ${response.status}`);
+    throw new Error(`Group API error: ${response.status}`);
   }
   
   const groups = await response.json();
   const worldGroups = groups.filter(g => g.type === 'world');
-  console.log(`[API] ワールド用グループを ${worldGroups.length} 件発見`);
+  console.log(`[API] Found ${worldGroups.length} world groups`);
   return worldGroups;
 }
 
 // VRChatフォルダ別お気に入り取得
 async function fetchVRChatFavoritesByTag(tag) {
   const n = 100;
-  console.log(`[API] フォルダ ${tag} のワールド一覧取得開始...`);
+  console.log(`[API] Fetching favorites for ${tag}...`);
   const response = await fetch(`${API_BASE}/favorites?n=${n}&type=world&tag=${tag}`, {
     method: 'GET',
     credentials: 'include',
@@ -557,11 +787,11 @@ async function fetchVRChatFavoritesByTag(tag) {
   
   if (!response.ok) {
     if (response.status === 401) throw new Error('VRChatにログインしていません');
-    throw new Error(`APIエラー (${tag}): ${response.status}`);
+    throw new Error(`API error (${tag}): ${response.status}`);
   }
   
   const favorites = await response.json();
-  console.log(`[API] フォルダ ${tag} から ${favorites.length} 件取得`);
+  console.log(`[API] Got ${favorites.length} favorites from ${tag}`);
   return favorites;
 }
 
@@ -587,29 +817,11 @@ async function updateVRCFolderData(worldGroups) {
   });
   
   await chrome.storage.sync.set({ vrcFolderData });
-  console.log('[API] VRCフォルダデータを更新:', vrcFolderData);
+  console.log('[API] VRC folder data updated');
   return vrcFolderData;
 }
 
-// VRCフォルダ同期状態を記録
-async function markVRCFolderAsModified(folderId) {
-  const sync = await chrome.storage.sync.get(['vrcFolderStates']);
-  const states = sync.vrcFolderStates || {};
-  states[folderId] = { needsSync: true, lastModified: Date.now() };
-  await chrome.storage.sync.set({ vrcFolderStates: states });
-}
-
-// VRCフォルダ同期状態をクリア
-async function clearVRCFolderModifiedState(folderId) {
-  const sync = await chrome.storage.sync.get(['vrcFolderStates']);
-  const states = sync.vrcFolderStates || {};
-  if (states[folderId]) {
-    delete states[folderId];
-    await chrome.storage.sync.set({ vrcFolderStates: states });
-  }
-}
-
-// VRCフォルダから取得
+// VRCフォルダから取得（重複チェック付き・最適化版）
 async function fetchVRCFolder(folderId, sendResponse) {
   try {
     const worldGroups = await fetchVRChatFavoriteGroups();
@@ -623,45 +835,56 @@ async function fetchVRCFolder(folderId, sendResponse) {
     
     const apiName = folderData.name;
     const favorites = await fetchVRChatFavoritesByTag(apiName);
-    
-    // 修正: favoriteIdの存在チェックのみ（APIから取得時点でtagフィルタ済み）
     const folderWorlds = favorites.filter(fav => fav.favoriteId);
     
-    const vrcWorlds = await getVRCFolderWorlds(folderId);
-    const existingIds = new Set(vrcWorlds.map(w => w.id));
+    // グローバル重複チェック
+    const allWorlds = await getAllWorldsInternal();
+    const existingMap = new Map(allWorlds.map(w => [w.id, w]));
     
-    let addedCount = 0;
-    const newWorlds = [];
+    const results = {
+      toAdd: [],
+      alreadyExists: [],
+      differentFolder: []
+    };
     
     for (const fav of folderWorlds) {
-      const worldId = fav.favoriteId;  // ワールドID
-      const favoriteRecordId = fav.id;  // お気に入りレコードID
+      const worldId = fav.favoriteId;
+      const existing = existingMap.get(worldId);
       
-      if (!existingIds.has(worldId)) {
-        newWorlds.push({
+      if (!existing) {
+        results.toAdd.push({
           id: worldId,
           name: fav.name,
           authorName: fav.authorName || null,
           releaseStatus: fav.releaseStatus || null,
           thumbnailImageUrl: fav.thumbnailImageUrl || null,
           folderId: folderId,
-          favoriteId: favoriteRecordId
+          favoriteId: fav.id
         });
-        addedCount++;
+      } else if (existing.folderId === folderId) {
+        results.alreadyExists.push(worldId);
+      } else {
+        results.differentFolder.push({
+          worldId: worldId,
+          currentFolder: existing.folderId,
+          worldName: fav.name
+        });
       }
     }
     
-    // バッチ保存
-    if (newWorlds.length > 0) {
+    // バッチ追加
+    if (results.toAdd.length > 0) {
       const local = await chrome.storage.local.get(['vrcWorlds']);
-      const vrcWorldsList = [...(local.vrcWorlds || []), ...newWorlds];
+      const vrcWorldsList = [...(local.vrcWorlds || []), ...results.toAdd];
       await chrome.storage.local.set({ vrcWorlds: vrcWorldsList });
     }
     
     sendResponse({ 
       success: true, 
-      addedCount,
+      addedCount: results.toAdd.length,
       totalCount: folderWorlds.length,
+      alreadyExists: results.alreadyExists.length,
+      differentFolder: results.differentFolder,
       folderName: folderData.displayName
     });
   } catch (error) {
@@ -680,8 +903,8 @@ async function syncToVRCFolder(folderId, sendResponse) {
       return;
     }
     
-    if (vrcWorlds.length > 100) {
-      sendResponse({ success: false, error: 'フォルダが100件を超えています' });
+    if (vrcWorlds.length > VRC_FOLDER_SYNC_LIMIT) {
+      sendResponse({ success: false, error: `フォルダが${VRC_FOLDER_SYNC_LIMIT}件を超えています` });
       return;
     }
     
@@ -696,8 +919,8 @@ async function syncToVRCFolder(folderId, sendResponse) {
     
     const apiName = folderData.name;
     const currentFavorites = await fetchVRChatFavoritesByTag(apiName);
-    
     const currentFolderFavorites = currentFavorites.filter(fav => fav.favoriteId);
+    
     const currentIds = new Set(currentFolderFavorites.map(fav => fav.favoriteId));
     const extensionIds = new Set(vrcWorlds.map(w => w.id));
     
@@ -706,6 +929,7 @@ async function syncToVRCFolder(folderId, sendResponse) {
     let errors = [];
     const updatedWorlds = [...vrcWorlds];
     
+    // 追加処理
     for (const world of vrcWorlds) {
       if (!currentIds.has(world.id)) {
         try {
@@ -738,6 +962,7 @@ async function syncToVRCFolder(folderId, sendResponse) {
       }
     }
     
+    // 削除処理
     for (const fav of currentFolderFavorites) {
       if (!extensionIds.has(fav.favoriteId)) {
         try {
@@ -767,9 +992,6 @@ async function syncToVRCFolder(folderId, sendResponse) {
     });
     await chrome.storage.local.set({ vrcWorlds: finalVrcWorlds });
     
-    // 同期完了したのでフラグをクリア
-    await clearVRCFolderModifiedState(folderId);
-    
     sendResponse({ 
       success: true, 
       addedCount,
@@ -793,6 +1015,10 @@ async function fetchAllVRCFolders(sendResponse) {
     let totalAdded = 0;
     let fetchErrors = [];
     
+    // グローバル重複チェック用
+    const allWorlds = await getAllWorldsInternal();
+    const existingMap = new Map(allWorlds.map(w => [w.id, w]));
+    
     for (const folderId of folderIds) {
       try {
         const folderData = vrcFolderData[folderId];
@@ -801,15 +1027,13 @@ async function fetchAllVRCFolders(sendResponse) {
         const favorites = await fetchVRChatFavoritesByTag(apiName);
         const folderWorlds = favorites.filter(fav => fav.favoriteId);
         
-        const existingWorlds = await getVRCFolderWorlds(folderId);
-        const existingIds = new Set(existingWorlds.map(w => w.id));
-        
         let addedCount = 0;
         for (const fav of folderWorlds) {
           const worldId = fav.favoriteId;
-          const favoriteRecordId = fav.id;
+          const existing = existingMap.get(worldId);
           
-          if (!existingIds.has(worldId)) {
+          // 完全に新規のみ追加（他のフォルダにある場合はスキップ）
+          if (!existing) {
             allNewWorlds.push({
               id: worldId,
               name: fav.name,
@@ -817,19 +1041,20 @@ async function fetchAllVRCFolders(sendResponse) {
               releaseStatus: fav.releaseStatus || null,
               thumbnailImageUrl: fav.thumbnailImageUrl || null,
               folderId: folderId,
-              favoriteId: favoriteRecordId
+              favoriteId: fav.id
             });
+            existingMap.set(worldId, { folderId }); // 次のフォルダで重複しないように
             addedCount++;
           }
         }
         
         totalAdded += addedCount;
-        console.log(`[API] フォルダ ${folderId}: ${addedCount}件追加`);
+        console.log(`[API] Folder ${folderId}: ${addedCount} added`);
         
         await sleep(250);
       } catch (e) {
-        console.error(`フォルダ ${folderId} の取得に失敗:`, e);
-        fetchErrors.push(`フォルダ ${folderId}: ${e.message}`);
+        console.error(`Failed to fetch ${folderId}:`, e);
+        fetchErrors.push(`${folderId}: ${e.message}`);
       }
     }
     
@@ -860,15 +1085,19 @@ async function fetchAllVRCFolders(sendResponse) {
   }
 }
 
-// 完全同期 (Diff & Apply)
+// 完全同期（3段階処理で重複エラーを防止）
 async function syncAllFavorites(sendResponse) {
   try {
+    console.log('[Sync] Starting 3-phase synchronization...');
+    
     const worldGroups = await fetchVRChatFavoriteGroups();
     const vrcFolderData = await updateVRCFolderData(worldGroups);
     
     const folderIds = ['worlds1', 'worlds2', 'worlds3', 'worlds4'];
     const vrcCurrentState = [];
     
+    // VRC公式の現在の状態を取得
+    console.log('[Sync] Fetching current VRC state...');
     for (const folderId of folderIds) {
       const folderData = vrcFolderData[folderId];
       const apiName = folderData.name;
@@ -879,8 +1108,7 @@ async function syncAllFavorites(sendResponse) {
           vrcCurrentState.push({
             worldId: fav.favoriteId,
             folder: folderId,
-            favoriteId: fav.id,
-            favoriteGroup: fav.favoriteGroup
+            favoriteId: fav.id
           });
         }
       }
@@ -888,24 +1116,44 @@ async function syncAllFavorites(sendResponse) {
       await sleep(250);
     }
     
+    console.log(`[Sync] VRC current state: ${vrcCurrentState.length} worlds`);
+    
+    // 拡張機能の理想状態を取得
     const local = await chrome.storage.local.get(['vrcWorlds']);
     const localIdealState = (local.vrcWorlds || []).map(w => ({
       worldId: w.id,
       folder: w.folderId
     }));
     
-    const vrcMap = new Map(vrcCurrentState.map(w => [w.worldId, { favoriteId: w.favoriteId, folder: w.folder, favoriteGroup: w.favoriteGroup }]));
+    console.log(`[Sync] Extension ideal state: ${localIdealState.length} worlds`);
+    
+    const vrcMap = new Map(vrcCurrentState.map(w => [w.worldId, { favoriteId: w.favoriteId, folder: w.folder }]));
     const localMap = new Map(localIdealState.map(w => [w.worldId, { folder: w.folder }]));
     
+    // Phase 1: 削除対象を特定（拡張機能に存在しないワールド）
     const toRemove = [];
-    const toAdd = [];
-    
     for (const [worldId, vrcData] of vrcMap.entries()) {
       if (!localMap.has(worldId)) {
-        toRemove.push({ worldId, favoriteId: vrcData.favoriteId });
+        toRemove.push({ worldId, favoriteId: vrcData.favoriteId, folder: vrcData.folder });
       }
     }
     
+    // Phase 2: 移動対象を特定（存在するがフォルダが違うワールド）
+    const toMove = [];
+    for (const [worldId, localData] of localMap.entries()) {
+      const vrcData = vrcMap.get(worldId);
+      if (vrcData && vrcData.folder !== localData.folder) {
+        toMove.push({
+          worldId,
+          currentFavoriteId: vrcData.favoriteId,
+          fromFolder: vrcData.folder,
+          toFolder: localData.folder
+        });
+      }
+    }
+    
+    // Phase 3: 追加対象を特定（拡張機能に存在するが、VRCに存在しないワールド）
+    const toAdd = [];
     for (const [worldId, localData] of localMap.entries()) {
       if (!vrcMap.has(worldId)) {
         const folderData = vrcFolderData[localData.folder];
@@ -914,57 +1162,130 @@ async function syncAllFavorites(sendResponse) {
     }
     
     let successRemove = 0;
+    let successMove = 0;
     let successAdd = 0;
     let errors = [];
     
+    console.log(`[Sync] Phase 1: Removing ${toRemove.length} worlds`);
+    console.log(`[Sync] Phase 2: Moving ${toMove.length} worlds`);
+    console.log(`[Sync] Phase 3: Adding ${toAdd.length} worlds`);
+    
+    // Phase 1: 削除実行（スペース確保）
     for (const item of toRemove) {
       try {
-        await apiCallWithRetry(async () => {
-          const response = await fetch(`${API_BASE}/favorites/${item.favoriteId}`, {
-            method: 'DELETE',
-            credentials: 'include'
-          });
-          if (!response.ok) throw new Error(`Delete failed: ${response.status}`);
+        console.log(`[Sync] Removing ${item.worldId} from ${item.folder}`);
+        const response = await fetch(`${API_BASE}/favorites/${item.favoriteId}`, {
+          method: 'DELETE',
+          credentials: 'include'
         });
-        successRemove++;
+        if (response.ok) {
+          successRemove++;
+          console.log(`[Sync] ✓ Removed: ${item.worldId}`);
+        } else {
+          const errorText = await response.text();
+          errors.push(`削除失敗 (${item.worldId}): ${response.status} ${errorText}`);
+          console.error(`[Sync] ✗ Remove failed: ${item.worldId} - ${response.status}`);
+        }
       } catch (e) {
-        errors.push(`削除失敗 (World ID: ${item.worldId}): ${e.message}`);
+        errors.push(`削除エラー (${item.worldId}): ${e.message}`);
+        console.error(`[Sync] ✗ Remove error: ${item.worldId}`, e);
       }
       await sleep(500);
     }
     
+    // Phase 2: 移動実行（削除してから追加なので重複しない）
+    for (const item of toMove) {
+      try {
+        console.log(`[Sync] Moving ${item.worldId}: ${item.fromFolder} → ${item.toFolder}`);
+        
+        // 2-1: 古いフォルダから削除
+        const deleteResponse = await fetch(`${API_BASE}/favorites/${item.currentFavoriteId}`, {
+          method: 'DELETE',
+          credentials: 'include'
+        });
+        
+        if (!deleteResponse.ok) {
+          const errorText = await deleteResponse.text();
+          errors.push(`移動削除失敗 (${item.worldId}): ${deleteResponse.status} ${errorText}`);
+          console.error(`[Sync] ✗ Move delete failed: ${item.worldId} - ${deleteResponse.status}`);
+          await sleep(500);
+          continue;
+        }
+        
+        console.log(`[Sync] ✓ Deleted from ${item.fromFolder}: ${item.worldId}`);
+        await sleep(500);
+        
+        // 2-2: 新しいフォルダに追加
+        const folderData = vrcFolderData[item.toFolder];
+        const addResponse = await fetch(`${API_BASE}/favorites`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'world',
+            favoriteId: item.worldId,
+            tags: [folderData.name]
+          })
+        });
+        
+        if (addResponse.ok) {
+          successMove++;
+          console.log(`[Sync] ✓ Moved: ${item.worldId} (${item.fromFolder} → ${item.toFolder})`);
+        } else {
+          const errorText = await addResponse.text();
+          errors.push(`移動追加失敗 (${item.worldId}): ${addResponse.status} ${errorText}`);
+          console.error(`[Sync] ✗ Move add failed: ${item.worldId} - ${addResponse.status}`, errorText);
+        }
+      } catch (e) {
+        errors.push(`移動エラー (${item.worldId}): ${e.message}`);
+        console.error(`[Sync] ✗ Move error: ${item.worldId}`, e);
+      }
+      await sleep(500);
+    }
+    
+    // Phase 3: 追加実行（整合性が取れた状態で新規追加）
     for (const item of toAdd) {
       try {
-        await apiCallWithRetry(async () => {
-          const response = await fetch(`${API_BASE}/favorites`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              type: 'world',
-              favoriteId: item.worldId,
-              tags: [item.apiName]
-            })
-          });
-          if (!response.ok) throw new Error(`Add failed: ${response.status}`);
+        console.log(`[Sync] Adding ${item.worldId} to ${item.folder}`);
+        const response = await fetch(`${API_BASE}/favorites`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'world',
+            favoriteId: item.worldId,
+            tags: [item.apiName]
+          })
         });
-        successAdd++;
+        
+        if (response.ok) {
+          successAdd++;
+          console.log(`[Sync] ✓ Added: ${item.worldId} to ${item.folder}`);
+        } else {
+          const errorText = await response.text();
+          errors.push(`追加失敗 (${item.worldId}): ${response.status} ${errorText}`);
+          console.error(`[Sync] ✗ Add failed: ${item.worldId} - ${response.status}`, errorText);
+        }
       } catch (e) {
-        errors.push(`追加失敗 (World ID: ${item.worldId}, Folder: ${item.folder}): ${e.message}`);
+        errors.push(`追加エラー (${item.worldId}): ${e.message}`);
+        console.error(`[Sync] ✗ Add error: ${item.worldId}`, e);
       }
       await sleep(500);
     }
     
-    // 全フォルダの同期状態をクリア
-    for (const folderId of folderIds) {
-      await clearVRCFolderModifiedState(folderId);
+    console.log(`[Sync] Complete: Removed ${successRemove}/${toRemove.length}, Moved ${successMove}/${toMove.length}, Added ${successAdd}/${toAdd.length}`);
+    
+    if (errors.length > 0) {
+      console.error('[Sync] Errors:', errors);
     }
     
     sendResponse({
       success: true,
       removed: successRemove,
+      moved: successMove,
       added: successAdd,
       totalRemove: toRemove.length,
+      totalMove: toMove.length,
       totalAdd: toAdd.length,
       errors: errors.length > 0 ? errors : null
     });
@@ -974,7 +1295,9 @@ async function syncAllFavorites(sendResponse) {
   }
 }
 
-// === 内部ヘルパー関数 ===
+// ========================================
+// 内部ヘルパー関数
+// ========================================
 
 async function getAllWorldsInternal() {
   const sync = await chrome.storage.sync.get(['worlds']);
@@ -996,12 +1319,16 @@ async function getAllWorldsInternal() {
   return [...syncWorldsWithDetails, ...vrcWorlds];
 }
 
-async function removeWorldInternal(worldId, folderId) {
+async function getVRCFolderWorlds(folderId) {
+  const local = await chrome.storage.local.get(['vrcWorlds']);
+  return (local.vrcWorlds || []).filter(w => w.folderId === folderId);
+}
+
+async function removeWorldFromFolder(worldId, folderId) {
   if (folderId.startsWith('worlds')) {
     const local = await chrome.storage.local.get(['vrcWorlds']);
     const vrcWorlds = (local.vrcWorlds || []).filter(w => w.id !== worldId);
     await chrome.storage.local.set({ vrcWorlds });
-    await markVRCFolderAsModified(folderId);
   } else {
     const sync = await chrome.storage.sync.get(['worlds']);
     const syncWorlds = (sync.worlds || []).filter(w => w.id !== worldId);
@@ -1009,7 +1336,7 @@ async function removeWorldInternal(worldId, folderId) {
   }
 }
 
-async function addWorldInternal(world) {
+async function addWorldToFolder(world) {
   try {
     const folderId = world.folderId;
     
@@ -1031,7 +1358,6 @@ async function addWorldInternal(world) {
         favoriteId: world.favoriteId || null
       });
       await chrome.storage.local.set({ vrcWorlds: vrcWorldsList });
-      await markVRCFolderAsModified(folderId);
       
     } else {
       const sync = await chrome.storage.sync.get(['worlds']);
@@ -1061,7 +1387,265 @@ async function addWorldInternal(world) {
   }
 }
 
-async function getVRCFolderWorlds(folderId) {
+// ========================================
+// VRC同期デバッグヘルパー
+// 開発者コンソールで実行してください
+// ========================================
+
+// 1. 拡張機能内のVRCワールド状態を確認
+async function debugExtensionVRCState() {
   const local = await chrome.storage.local.get(['vrcWorlds']);
-  return (local.vrcWorlds || []).filter(w => w.folderId === folderId);
+  const vrcWorlds = local.vrcWorlds || [];
+  
+  console.log('===== Extension VRC Worlds =====');
+  console.log('Total:', vrcWorlds.length);
+  
+  const byFolder = {
+    worlds1: vrcWorlds.filter(w => w.folderId === 'worlds1'),
+    worlds2: vrcWorlds.filter(w => w.folderId === 'worlds2'),
+    worlds3: vrcWorlds.filter(w => w.folderId === 'worlds3'),
+    worlds4: vrcWorlds.filter(w => w.folderId === 'worlds4')
+  };
+  
+  console.log('worlds1:', byFolder.worlds1.length);
+  console.log('worlds2:', byFolder.worlds2.length);
+  console.log('worlds3:', byFolder.worlds3.length);
+  console.log('worlds4:', byFolder.worlds4.length);
+  
+  // 詳細表示
+  Object.entries(byFolder).forEach(([folder, worlds]) => {
+    if (worlds.length > 0) {
+      console.log(`\n${folder}:`);
+      worlds.forEach(w => {
+        console.log(`  - ${w.name} (${w.id})`);
+      });
+    }
+  });
+  
+  return byFolder;
 }
+
+// 2. VRC公式の状態を確認
+async function debugVRCOfficialState() {
+  const API_BASE = 'https://vrchat.com/api/1';
+  
+  // フォルダグループ取得
+  const groupsResponse = await fetch(`${API_BASE}/favorite/groups`, {
+    method: 'GET',
+    credentials: 'include'
+  });
+  const groups = await groupsResponse.json();
+  const worldGroups = groups.filter(g => g.type === 'world');
+  
+  console.log('===== VRC Official State =====');
+  console.log('World Groups:', worldGroups.length);
+  
+  const vrcState = {};
+  
+  for (let i = 0; i < worldGroups.length && i < 4; i++) {
+    const group = worldGroups[i];
+    const folderId = `worlds${i + 1}`;
+    
+    const favResponse = await fetch(`${API_BASE}/favorites?n=100&type=world&tag=${group.name}`, {
+      method: 'GET',
+      credentials: 'include'
+    });
+    const favorites = await favResponse.json();
+    
+    vrcState[folderId] = favorites.filter(f => f.favoriteId);
+    
+    console.log(`${folderId} (${group.displayName}):`, vrcState[folderId].length);
+    
+    if (vrcState[folderId].length > 0) {
+      console.log(`  Worlds:`);
+      vrcState[folderId].forEach(f => {
+        console.log(`    - ${f.name} (${f.favoriteId})`);
+      });
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  
+  return vrcState;
+}
+
+// 3. 差分を比較
+async function debugSyncDiff() {
+  console.log('===== Sync Difference Analysis =====\n');
+  
+  const extensionState = await debugExtensionVRCState();
+  console.log('\n');
+  const vrcState = await debugVRCOfficialState();
+  
+  console.log('\n===== Difference Summary =====');
+  
+  const folderIds = ['worlds1', 'worlds2', 'worlds3', 'worlds4'];
+  
+  for (const folderId of folderIds) {
+    const extWorlds = new Set((extensionState[folderId] || []).map(w => w.id));
+    const vrcWorlds = new Set((vrcState[folderId] || []).map(f => f.favoriteId));
+    
+    const toAdd = [...extWorlds].filter(id => !vrcWorlds.has(id));
+    const toRemove = [...vrcWorlds].filter(id => !extWorlds.has(id));
+    
+    console.log(`\n${folderId}:`);
+    console.log(`  Extension: ${extWorlds.size} worlds`);
+    console.log(`  VRC:       ${vrcWorlds.size} worlds`);
+    
+    if (toAdd.length > 0) {
+      console.log(`  ➕ To Add (${toAdd.length}):`);
+      toAdd.forEach(id => {
+        const world = extensionState[folderId].find(w => w.id === id);
+        console.log(`    - ${world?.name || id}`);
+      });
+    }
+    
+    if (toRemove.length > 0) {
+      console.log(`  ➖ To Remove (${toRemove.length}):`);
+      toRemove.forEach(id => {
+        const fav = vrcState[folderId].find(f => f.favoriteId === id);
+        console.log(`    - ${fav?.name || id}`);
+      });
+    }
+    
+    if (toAdd.length === 0 && toRemove.length === 0) {
+      console.log(`  ✓ In sync`);
+    }
+  }
+}
+
+// 4. 移動を検出
+async function debugMoveDetection() {
+  console.log('===== Move Detection =====\n');
+  
+  const local = await chrome.storage.local.get(['vrcWorlds']);
+  const extensionWorlds = local.vrcWorlds || [];
+  
+  const API_BASE = 'https://vrchat.com/api/1';
+  const groupsResponse = await fetch(`${API_BASE}/favorite/groups`, {
+    method: 'GET',
+    credentials: 'include'
+  });
+  const groups = await groupsResponse.json();
+  const worldGroups = groups.filter(g => g.type === 'world');
+  
+  const vrcWorldLocations = new Map(); // worldId -> folder
+  
+  for (let i = 0; i < worldGroups.length && i < 4; i++) {
+    const group = worldGroups[i];
+    const folderId = `worlds${i + 1}`;
+    
+    const favResponse = await fetch(`${API_BASE}/favorites?n=100&type=world&tag=${group.name}`, {
+      method: 'GET',
+      credentials: 'include'
+    });
+    const favorites = await favResponse.json();
+    
+    favorites.forEach(f => {
+      if (f.favoriteId) {
+        vrcWorldLocations.set(f.favoriteId, folderId);
+      }
+    });
+    
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  
+  const moves = [];
+  
+  for (const world of extensionWorlds) {
+    const vrcFolder = vrcWorldLocations.get(world.id);
+    if (vrcFolder && vrcFolder !== world.folderId) {
+      moves.push({
+        worldId: world.id,
+        worldName: world.name,
+        extensionFolder: world.folderId,
+        vrcFolder: vrcFolder
+      });
+    }
+  }
+  
+  if (moves.length === 0) {
+    console.log('✓ No moves detected');
+  } else {
+    console.log(`Found ${moves.length} worlds that need to be moved:\n`);
+    moves.forEach(m => {
+      console.log(`  ${m.worldName}`);
+      console.log(`    Extension: ${m.extensionFolder}`);
+      console.log(`    VRC:       ${m.vrcFolder}`);
+      console.log(`    Action:    Move from ${m.vrcFolder} to ${m.extensionFolder}\n`);
+    });
+  }
+  
+  return moves;
+}
+
+// 5. テスト用：1つだけ追加してみる
+async function testAddOneWorld(worldId, targetFolder = 'worlds1') {
+  const API_BASE = 'https://vrchat.com/api/1';
+  
+  // フォルダグループ取得
+  const groupsResponse = await fetch(`${API_BASE}/favorite/groups`, {
+    method: 'GET',
+    credentials: 'include'
+  });
+  const groups = await groupsResponse.json();
+  const worldGroups = groups.filter(g => g.type === 'world');
+  
+  const folderIndex = parseInt(targetFolder.replace('worlds', '')) - 1;
+  const targetGroup = worldGroups[folderIndex];
+  
+  if (!targetGroup) {
+    console.error('Target folder not found');
+    return;
+  }
+  
+  console.log(`Testing add: ${worldId} to ${targetFolder} (${targetGroup.displayName})`);
+  
+  try {
+    const response = await fetch(`${API_BASE}/favorites`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'world',
+        favoriteId: worldId,
+        tags: [targetGroup.name]
+      })
+    });
+    
+    if (response.ok) {
+      const result = await response.json();
+      console.log('✓ Success!');
+      console.log('Result:', result);
+    } else {
+      const errorText = await response.text();
+      console.error('✗ Failed:', response.status);
+      console.error('Error:', errorText);
+    }
+  } catch (e) {
+    console.error('✗ Error:', e);
+  }
+}
+
+// ========================================
+// 使用方法
+// ========================================
+/*
+// 開発者コンソールで実行:
+
+// 1. 拡張機能の状態を確認
+await debugExtensionVRCState();
+
+// 2. VRC公式の状態を確認
+await debugVRCOfficialState();
+
+// 3. 差分を比較
+await debugSyncDiff();
+
+// 4. 移動が必要なワールドを検出
+await debugMoveDetection();
+
+// 5. テスト追加（1つだけ）
+await testAddOneWorld('wrld_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 'worlds1');
+
+*/
