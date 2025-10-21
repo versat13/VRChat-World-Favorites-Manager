@@ -13,6 +13,9 @@ VRChatのお気に入りワールドを**直感的にとりあえずで素早く
 それ以上のデータを保存したい場合、エクスポート機能やVRCXなどの別の外部ツールをご利用ください。  
 https://github.com/vrcx-team/VRCX
 
+α番だけどとりあえずウェブストアで公開  
+https://chromewebstore.google.com/detail/vrchat-favorite-worlds-ma/dilmkhbdfgobkiemjhldemmbceoagoni?authuser=0&hl=ja
+
 ---
 
 ## 🌟 主な機能（Features）
