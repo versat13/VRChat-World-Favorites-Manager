@@ -73,37 +73,30 @@
 
     /* リスト編集中バナー */
     .editing-banner {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
       display: flex;
       align-items: center;
-      justify-content: center;
       gap: 8px;
-      padding: 6px 16px;
+      padding: 12px 20px;
       background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
       color: #78350f;
       font-weight: 600;
-      border-top: 2px solid #d97706;
-      line-height: 1.2;
-      animation: slide-up 0.3s ease-out;
-      z-index: 1000;
+      border-bottom: 2px solid #d97706;
+      animation: pulse-banner 2s ease-in-out infinite;
     }
 
     .editing-icon {
       font-size: 1.2em;
     }
 
-    @keyframes slide-up {
-      from {
-        transform: translateY(100%);
-        opacity: 0;
+    @keyframes pulse-banner {
+
+      0%,
+      100% {
+        opacity: 1;
       }
 
-      to {
-        transform: translateY(0);
-        opacity: 1;
+      50% {
+        opacity: 0.85;
       }
     }
 
@@ -166,15 +159,14 @@
     }
 
     /* 検索バー */
-    .search-wrapper {
+    .search-bar {
       padding: 8px 16px;
       background: #141920;
       border-bottom: 1px solid #222;
       flex-shrink: 0;
-      position: relative;
     }
 
-    .search-wrapper input {
+    .search-bar input {
       width: 100%;
       padding: 6px 10px;
       background: #1a1f2e;
@@ -184,31 +176,10 @@
       font-size: 13px;
     }
 
-    .search-wrapper input:focus {
+    .search-bar input:focus {
       outline: none;
       border-color: #1fd1ed;
       box-shadow: 0 0 0 2px rgba(31, 209, 237, 0.2);
-    }
-
-    .search-clear-btn {
-      position: absolute;
-      right: 20px;
-      top: 50%;
-      transform: translateY(-50%);
-      background: rgba(255, 255, 255, 0.1);
-      border: none;
-      border-radius: 50%;
-      width: 24px;
-      height: 24px;
-      color: #aaa;
-      cursor: pointer;
-      font-size: 14px;
-      transition: all 0.2s;
-    }
-
-    .search-clear-btn:hover {
-      background: rgba(255, 255, 255, 0.2);
-      color: #fff;
     }
 
     /* フォルダタブ(縦配置) */
@@ -246,7 +217,7 @@
       border-color: #1fd1ed;
     }
 
-    /* VRCフォルダ */
+    /* VRCフォルダの状態表示 */
     .folder-tab.vrc-folder {
       background: #07191d;
       border-color: #103b48;
@@ -284,21 +255,40 @@
       box-shadow: 0 0 12px rgba(245, 101, 101, 0.6);
     }
 
-    .folder-tab.vrc-folder.vrc-sync-warning {
+    .folder-tab.vrc-folder.vrc-needs-sync {
       background: #3e2e1f;
       border-color: #f6ad55;
       color: #888;
+      animation: pulse-yellow 2s ease-in-out infinite;
     }
 
-    .folder-tab.vrc-folder.vrc-sync-warning:hover {
+    .folder-tab.vrc-folder.vrc-needs-sync:hover {
       background: linear-gradient(135deg, #f6ad55 0%, #dd6b20 100%);
       color: white;
     }
 
-    .folder-tab.vrc-folder.vrc-sync-warning.active {
+    .folder-tab.vrc-folder.vrc-needs-sync.active {
       background: linear-gradient(135deg, #f6ad55 0%, #dd6b20 100%);
       color: white;
       border-color: #f6ad55;
+      animation: none;
+    }
+
+    /* VRCフォルダの100件超警告（同期不可） */
+    .folder-tab.vrc-folder.vrc-sync-warning {
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    }
+
+    @keyframes pulse-yellow {
+
+      0%,
+      100% {
+        border-color: #cc8e44;
+      }
+
+      50% {
+        border-color: #dd6b20;
+      }
     }
 
     .folder-tab.none-folder {
@@ -335,7 +325,7 @@
       opacity: 0.5;
     }
 
-    /* 全選択トグル + 並び替え */
+    /* 全選択トグル + 並び替え + 選択中操作 */
     .select-all-container {
       padding: 8px 16px;
       background: #141920;
@@ -355,6 +345,7 @@
       user-select: none;
     }
 
+    /* 並び替えドロップダウン */
     .sort-dropdown {
       display: flex;
       align-items: center;
@@ -772,11 +763,6 @@
       color: #1fd1ed;
     }
 
-    .actions button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
     /* モーダル */
     .modal {
       display: none;
@@ -796,20 +782,6 @@
       display: flex;
     }
 
-    .modal-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.8);
-      backdrop-filter: blur(4px);
-      z-index: 10001;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
     .modal-content {
       background: #1a1f2e;
       border: 2px solid #1fd1ed;
@@ -822,13 +794,6 @@
       overflow-y: auto;
     }
 
-    .folder-select-modal {
-      max-height: 80vh;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-    }
-
     .modal-header {
       font-size: 16px;
       color: #1fd1ed;
@@ -837,19 +802,6 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-    }
-
-    .modal-title {
-      color: #1fd1ed;
-      margin: 0 0 16px 0;
-      font-size: 18px;
-      font-weight: 600;
-    }
-
-    .modal-description {
-      color: #aaa;
-      margin: 0 0 16px 0;
-      font-size: 14px;
     }
 
     .folder-id-badge {
@@ -873,7 +825,7 @@
       border-radius: 6px;
       color: #e0e0e0;
       font-size: 13px;
-      margin-bottom: 4px;
+      margin-bottom: 12px;
     }
 
     .modal-input:focus {
@@ -928,100 +880,38 @@
       background: #ff3333;
     }
 
-    .modal-buttons {
-      display: flex;
-      gap: 8px;
-      margin-top: 16px;
-    }
-
-    .modal-buttons .btn {
-      flex: 1;
-      padding: 12px;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 14px;
-      transition: all 0.2s;
-    }
-
-    .modal-buttons .btn.secondary {
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid #666;
-      color: #aaa;
-    }
-
-    .modal-buttons .btn.secondary:hover {
-      background: rgba(255, 255, 255, 0.15);
-    }
-
-    .modal-buttons .btn.primary {
-      background: #1fd1ed;
-      border: 1px solid #1fd1ed;
-      color: #0a0e14;
-      font-weight: 600;
-    }
-
-    .modal-buttons .btn.primary:hover {
-      background: #18b8d0;
-    }
-
-    .current-folder-info {
-      color: #67d781;
-      margin: 0 0 12px 0;
-      font-size: 12px;
-      background: rgba(103, 215, 129, 0.1);
-      padding: 8px;
-      border-radius: 4px;
-    }
-
-    .folder-select-list {
+    /* フォルダ選択 */
+    .folder-selection {
       display: flex;
       flex-direction: column;
       gap: 8px;
       margin: 12px 0;
-      overflow-y: auto;
-      overflow-x: hidden;
-    }
-
-    /* ワールド追加欄あり */
-    .modal-input+.modal-description+.folder-select-list {
-      max-height: 200px;
-    }
-
-    /* ワールド追加欄なし */
-    .modal-description+.folder-select-list {
       max-height: 300px;
+      overflow-y: auto;
     }
 
     .folder-option {
-      padding: 12px 16px;
+      padding: 10px;
       background: #0f1419;
       border: 2px solid #333;
       border-radius: 8px;
       cursor: pointer;
       transition: all 0.2s;
       display: flex;
-      justify-content: space-between;
       align-items: center;
       gap: 8px;
       user-select: none;
     }
 
-    .folder-option:hover:not(.disabled) {
+    .folder-option:hover:not(.vrc-disabled) {
       border-color: #1fd1ed;
       background: #1a1f2e;
     }
 
-    .folder-option.selected:not(.disabled) {
+    .folder-option.selected:not(.vrc-disabled) {
       border-color: #1fd1ed;
       background: #1a1f2e;
       box-shadow: 0 0 12px rgba(31, 209, 237, 0.3);
-    }
-
-    .folder-option.disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      pointer-events: none;
     }
 
     .folder-option.none {
@@ -1061,20 +951,17 @@
       cursor: not-allowed;
     }
 
+    .folder-option-icon {
+      font-size: 18px;
+    }
+
     .folder-option-name {
-      font-size: 14px;
+      font-size: 12px;
       color: #e0e0e0;
       flex: 1;
     }
 
-    .folder-option-badge {
-      color: #67d781;
-      font-size: 12px;
-      padding: 2px 8px;
-      background: rgba(103, 215, 129, 0.1);
-      border-radius: 4px;
-    }
-
+    /* インポート/エクスポート選択 */
     .import-export-options {
       display: flex;
       flex-direction: column;
@@ -1149,7 +1036,7 @@
     /* スクロールバー */
     .content::-webkit-scrollbar,
     .sidebar::-webkit-scrollbar,
-    .folder-select-list::-webkit-scrollbar,
+    .folder-selection::-webkit-scrollbar,
     .modal-content::-webkit-scrollbar {
       width: 8px;
       height: 8px;
@@ -1157,14 +1044,14 @@
 
     .content::-webkit-scrollbar-track,
     .sidebar::-webkit-scrollbar-track,
-    .folder-select-list::-webkit-scrollbar-track,
+    .folder-selection::-webkit-scrollbar-track,
     .modal-content::-webkit-scrollbar-track {
       background: #0f1419;
     }
 
     .content::-webkit-scrollbar-thumb,
     .sidebar::-webkit-scrollbar-thumb,
-    .folder-select-list::-webkit-scrollbar-thumb,
+    .folder-selection::-webkit-scrollbar-thumb,
     .modal-content::-webkit-scrollbar-thumb {
       background: #333;
       border-radius: 4px;
@@ -1172,11 +1059,12 @@
 
     .content::-webkit-scrollbar-thumb:hover,
     .sidebar::-webkit-scrollbar-thumb:hover,
-    .folder-select-list::-webkit-scrollbar-thumb:hover,
+    .folder-selection::-webkit-scrollbar-thumb:hover,
     .modal-content::-webkit-scrollbar-thumb:hover {
       background: #1fd1ed;
     }
 
+    /* 隠しファイル入力 */
     #importFile {
       display: none;
     }
@@ -1206,9 +1094,8 @@
       <!-- メインコンテンツ -->
       <div class="main-content">
         <!-- 検索バー -->
-        <div class="search-wrapper">
-          <input type="text" id="searchInput" placeholder="🔍 ワールド名・作者名・IDで検索...">
-          <button id="searchClearBtn" class="search-clear-btn" style="display: none;">✕</button>
+        <div class="search-bar">
+          <input type="text" id="searchInput" placeholder="🔍 Search by name, author, or ID...">
         </div>
 
         <!-- 全選択トグル + 選択中操作 -->
@@ -1280,6 +1167,22 @@
     </div>
   </div>
 
+  <!-- ワールド追加モーダル -->
+  <div id="addWorldModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">🌐 ワールドを追加</div>
+      <div class="modal-body">
+        <input type="text" id="worldIdInput" class="modal-input" placeholder="ワールドIDまたはURLを入力...">
+        <p style="margin-bottom: 12px; font-size: 11px; color: #888;">このワールドを保存するフォルダを選択してください:</p>
+        <div class="folder-selection" id="addWorldFolderList"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="addWorldConfirm" class="btn-confirm">追加</button>
+        <button id="addWorldCancel" class="btn-cancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
   <!-- フォルダ名変更/削除モーダル -->
   <div id="renameFolderModal" class="modal">
     <div class="modal-content">
@@ -1322,6 +1225,21 @@
     </div>
   </div>
 
+  <!-- フォルダ移動モーダル -->
+  <div id="moveFolderModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">➡️ フォルダを選択</div>
+      <div class="modal-body">
+        <p style="margin-bottom: 12px;">移動先のフォルダを選択してください:</p>
+        <div class="folder-selection" id="moveFolderList"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="moveFolderConfirm" class="btn-confirm">移動</button>
+        <button id="moveFolderCancel" class="btn-cancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
   <!-- インポート/エクスポート形式選択モーダル -->
   <div id="importExportModal" class="modal">
     <div class="modal-content">
@@ -1344,6 +1262,21 @@
       </div>
       <div class="modal-actions">
         <button id="importExportCancel" class="btn-cancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- フォルダ選択(インポート/エクスポート用)-->
+  <div id="folderSelectModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header" id="folderSelectTitle">📁 フォルダを選択</div>
+      <div class="modal-body">
+        <p style="margin-bottom: 12px;" id="folderSelectDesc">対象のフォルダを選択してください:</p>
+        <div class="folder-selection" id="folderSelectList"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="folderSelectConfirm" class="btn-confirm">OK</button>
+        <button id="folderSelectCancel" class="btn-cancel">キャンセル</button>
       </div>
     </div>
   </div>

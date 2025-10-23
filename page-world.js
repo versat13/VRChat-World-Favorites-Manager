@@ -1,6 +1,7 @@
 console.log("[VRC Resolver] World Page Script v7.2 (Improved Edition)");
+
 (function() {
-'use strict';
+  'use strict';
 
 // === Constants ===
 const SELECTORS = {
@@ -68,7 +69,12 @@ async function loadSavedWorlds() {
     savedWorldIds = new Set((response.worlds || []).map(w => w.id));
     console.log('[World Page] Loaded saved worlds:', savedWorldIds.size);
   } catch (e) {
-    console.error('[World Page] Failed to communicate with background:', e);
+    if (e.message.includes('Extension context invalidated')) {
+      console.warn('[World Page] Extension context invalidated. Please reload the page.');
+      showNotification('拡張機能が更新されました。ページを再読み込みしてください', 'info');
+    } else {
+      console.error('[World Page] Failed to communicate with background:', e);
+    }
   }
 }
 
@@ -83,7 +89,11 @@ async function loadFolders() {
     exFolders = response.folders || [];
     console.log('[World Page] Loaded folders:', { vrcFolders, exFolders });
   } catch (e) {
-    console.error('[World Page] Failed to load folders:', e);
+    if (e.message.includes('Extension context invalidated')) {
+      console.warn('[World Page] Extension context invalidated. Please reload the page.');
+    } else {
+      console.error('[World Page] Failed to load folders:', e);
+    }
   }
 }
 
@@ -97,7 +107,11 @@ async function loadVRCWorlds() {
     vrcWorlds = response.vrcWorlds || [];
     console.log('[World Page] Loaded VRC worlds:', vrcWorlds.length);
   } catch (e) {
-    console.error('[World Page] Failed to load VRC worlds:', e);
+    if (e.message.includes('Extension context invalidated')) {
+      console.warn('[World Page] Extension context invalidated. Please reload the page.');
+    } else {
+      console.error('[World Page] Failed to load VRC worlds:', e);
+    }
   }
 }
 
@@ -621,7 +635,11 @@ async function addToExtension(worldId, folderId) {
     }
   } catch (error) {
     console.error('[World Page] Failed to add to extension:', error);
-    showNotification(`✖ エラー: ${error.message}`, 'error');
+    if (error.message.includes('Extension context invalidated')) {
+      showNotification('拡張機能が更新されました。ページを再読み込みしてください', 'info');
+    } else {
+      showNotification(`✖ エラー: ${error.message}`, 'error');
+    }
   }
 }
 
@@ -632,15 +650,15 @@ async function deleteFromExtension(worldId) {
   
   console.log(`[World Page] Deleting ${worldId} from extension...`);
   
-  const response = await chrome.runtime.sendMessage({ type: 'getAllWorlds' });
-  const world = (response.worlds || []).find(w => w.id === worldId);
-  
-  if (!world) {
-    showNotification('✖ ワールド情報が見つかりません', 'error');
-    return;
-  }
-  
   try {
+    const response = await chrome.runtime.sendMessage({ type: 'getAllWorlds' });
+    const world = (response.worlds || []).find(w => w.id === worldId);
+    
+    if (!world) {
+      showNotification('✖ ワールド情報が見つかりません', 'error');
+      return;
+    }
+    
     const deleteResponse = await chrome.runtime.sendMessage({
       type: 'removeWorld',
       worldId: worldId,
@@ -656,7 +674,11 @@ async function deleteFromExtension(worldId) {
     }
   } catch (error) {
     console.error('[World Page] Failed to delete from extension:', error);
-    showNotification(`✖ エラー: ${error.message}`, 'error');
+    if (error.message.includes('Extension context invalidated')) {
+      showNotification('拡張機能が更新されました。ページを再読み込みしてください', 'info');
+    } else {
+      showNotification(`✖ エラー: ${error.message}`, 'error');
+    }
   }
 }
 
@@ -686,7 +708,11 @@ async function deleteFromVRChat(worldId) {
           }
         }
       } catch (error) {
-        console.error('[World Page] Failed to sync deletion:', error);
+        if (error.message.includes('Extension context invalidated')) {
+          console.warn('[World Page] Extension context invalidated during sync');
+        } else {
+          console.error('[World Page] Failed to sync deletion:', error);
+        }
       }
     }, TIMEOUTS.VRC_DELETE_SYNC);
   } else {
@@ -817,10 +843,12 @@ function monitorRightColumnAndMigrate(worldId, floatingPanel) {
   const timer = setTimeout(() => {
     if (!hasTriggered) {
       hasTriggered = true;
-      try {
-        rightColumnObserver.disconnect();
-      } catch (e) {
-        console.warn('[World Page] Failed to disconnect observer on timeout:', e);
+      if (rightColumnObserver) {
+        try {
+          rightColumnObserver.disconnect();
+        } catch (e) {
+          console.warn('[World Page] Failed to disconnect observer on timeout:', e);
+        }
       }
       console.log('[World Page] Right column monitor timeout, keeping floating panel');
     }

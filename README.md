@@ -1,116 +1,130 @@
-# 🌐 VRChat Favorite Worlds Manager（日本語版）
+# VRChat Private World Favorites
 
----
+VRChatのプライベートワールドをブラウザ上でお気に入り登録・管理できるChrome拡張機能です。
 
-## 🧩 概要
+## 特徴
 
-VRChatのお気に入りワールドを**直感的にとりあえずで素早く管理・整理**するためのChrome拡張機能です。  
-簡易的な保存先として利用できるほか、**VRChat公式サイトのお気に入りワールド一覧をAPI経由で取得・同期**することも可能です。  
-（※同期にはChrome上でVRChatにログインしている必要があります）
+- 🌟 **プライベートワールドのお気に入り登録**: ゲーム内でお気に入り登録できないプライベートワールドをブラウザで管理
+- 🔄 **ブラウザ間で同期**: Chrome Sync Storageを使用し、ログイン中のすべてのブラウザで共有
+- 📤 **エクスポート/インポート**: JSONファイルでバックアップや共有が可能
+- 🖼️ **サムネイル表示**: ワールドのサムネイル画像を表示（設定でオン/オフ可能）
+- 🔍 **検索機能**: ワールド名で素早く検索
+- 🎨 **モダンなUI**: 使いやすく美しいインターフェース
 
-また、**JSON / CSV形式のインポート・エクスポート**に対応しており、簡易的なバックアップや**VRCXとの連携**も行えます。  
-データは**Chromeのデバイス間同期ストレージ**に保存されるため、別PCでも同期可能ですが、代わりに**保存上限は約800件**としています。  
-それ以上のデータを保存したい場合、エクスポート機能やVRCXなどの別の外部ツールをご利用ください。  
-https://github.com/vrcx-team/VRCX
+## インストール方法
 
----
+### 1. ファイルの準備
 
-## 🌟 主な機能（Features）
+以下のファイルを同じフォルダに配置します：
 
-### 🗂 詳細なワールド管理
-- 拡張機能内のフォルダによって、ワールドを直感的に分類・整理できます。  
-- **プライベート化されたワールドも保存可能**（ただしVRChat公式サイトへの登録は仕様上不可）。  
-- ワールドの移動は**ドラッグ＆ドロップ操作**に対応。
+```
+vrchat-favorites/
+├── manifest.json
+├── popup.html
+├── popup.js
+├── content.js
+├── content.css
+├── background.js
+└── icons/
+    ├── icon16.png
+    ├── icon48.png
+    └── icon128.png
+```
 
----
+### 2. アイコンの作成
 
-### 🔁 VRChat API連携と同期
-- **VRChat公式サイトのお気に入りワールド一覧**を取得し、整理後に同期が可能。  
-- 操作前には**JSONエクスポートによるバックアップ**を推奨します。  
-- VRChat公式サイトと通信を行うため、同期中は公式サイトでのお気に入り操作を避けてください。
+`icons`フォルダを作成し、以下のサイズのアイコン画像を用意します：
+- icon16.png (16x16px)
+- icon48.png (48x48px)
+- icon128.png (128x128px)
 
----
+シンプルな星マーク（⭐）やVRChatのロゴをモチーフにしたアイコンがおすすめです。
 
-### 💾 データ操作（インポート / エクスポート）
-- **JSON形式**：拡張機能専用フォーマット。全データまたはフォルダ単位でエクスポート可能（詳細情報を含む）。  
-- **CSV形式**：`WorldID, Name`のみを出力するシンプル形式。**VRCXとの連携**にも対応。
+### 3. Chromeに読み込み
 
----
+1. Chromeで `chrome://extensions/` を開く
+2. 右上の「デベロッパーモード」をオンにする
+3. 「パッケージ化されていない拡張機能を読み込む」をクリック
+4. 上記のファイルを配置したフォルダを選択
 
-### 🌐 VRChat公式サイトとの統合
-- VRChat公式サイトの「お気に入りワールド一覧」や「ワールド個別ページ」に**補助ボタンを追加**。  
-- 削除済み・プライベート化されたワールドの**ID情報を保持して可視化**。  
-  → 「非公開化されたこのワールド、元々何だったっけ？」という疑問を解消します。
+## 使い方
 
----
+### ワールドをお気に入りに追加
 
-## 🚀 今後のアップデート予定
-- **VRChatワールド関連の外部サイト**や**インスタンスページ**、英語版を追加予定。
+1. VRChatのワールドページ（`https://vrchat.com/home/world/wrld_xxx...`）を開く
+2. 右上に表示される「⭐ お気に入り追加」ボタンをクリック
+3. 「お気に入りに追加しました」の通知が表示されます
 
----
+### お気に入りリストを表示
 
-## ⚙️ インストール方法
-1. **[Chrome Web Store](#)**（公開予定）からインストール  
-2. Chrome上でVRChatにログイン  
-3. 拡張機能のアイコンからワールド整理を開始！
+1. 拡張機能アイコンをクリック
+2. お気に入り登録したワールドのリストが表示されます
+3. 各ワールドの「開く」ボタンでワールドページを開けます
 
----
+### ワールドを削除
 
-## 🧠 注意事項
-- この拡張機能は**VRChat公式とは無関係**のサードパーティ製ツールです。  
-- お気に入りの整理・バックアップなど、**個人利用目的**での使用を想定しています。  
-- 同期時にアカウントを切り替えると、**現在ログイン中のアカウントのデータに置き換わります**のでご注意ください。
+1. お気に入りリストでワールドの「削除」ボタンをクリック
+2. 確認ダイアログで「削除」を選択
 
----
+### エクスポート/インポート
 
-🌐 VRChat Favorite Worlds Manager
+**エクスポート:**
+1. 拡張機能のポップアップで「📤 エクスポート」をクリック
+2. JSONファイルがダウンロードされます
 
-A Chrome extension for intuitively managing and organizing your favorite VRChat worlds.
-You can use it as a lightweight personal storage, or sync your favorite worlds list via the official VRChat API (requires being logged in to VRChat in Chrome).
+**インポート:**
+1. 「📥 インポート」をクリック
+2. 以前エクスポートしたJSONファイルを選択
+3. 重複しないワールドが追加されます
 
-The extension also supports JSON / CSV import and export, allowing for easy backups and integration with VRCX.
-All data is stored in Chrome’s synced storage, meaning it can be shared across devices —
-however, there is a limit of around 800 worlds due to Chrome’s storage quota.
-For larger collections, consider exporting your data or managing them with VRCX.
+### 設定
 
-🌟 Features
-🗂 Advanced World Management
+- **サムネイルを表示**: チェックを外すとサムネイル画像を非表示にし、読み込みを高速化できます
 
-Organize your favorite worlds into folders directly within the extension.
+## データの保存について
 
-Private worlds can also be saved (though adding them to the official favorites list is not possible due to API restrictions).
+- データはChrome Sync Storageに保存されます
+- Googleアカウントにログインしている場合、すべてのChromeブラウザで自動的に同期されます
+- サムネイル画像はURLのみ保存され、その都度読み込まれます（データ容量を節約）
 
-Supports drag-and-drop operations for smooth folder management.
+## 注意事項
 
-🔁 VRChat API Sync
+- この拡張機能はVRChatの公式ツールではありません
+- ワールドがプライベート化された場合でも、ブラウザからアクセスできる限り情報を取得できます
+- ワールドが完全に削除された場合は、お気に入りに残っていてもアクセスできません
 
-Fetch your official VRChat favorite worlds list, organize it, and sync it back.
+## トラブルシューティング
 
-It is recommended to export your data as JSON for backup before syncing.
+### ボタンが表示されない
 
-The extension communicates with VRChat’s official API — avoid modifying your favorites on the website while syncing.
+- ページを再読み込みしてください
+- VRChatのワールドページ（`/home/world/wrld_...`）にいることを確認してください
 
-💾 Data Operations (Import / Export)
+### サムネイルが表示されない
 
-JSON format: Full structured data for this extension — export all data or specific folders (includes detailed metadata).
+- 「サムネイルを表示」設定がオンになっているか確認してください
+- ワールドによってはサムネイルが取得できない場合があります
 
-CSV format: Simplified structure containing only WorldID, Name, compatible with VRCX.
+### 同期されない
 
-🌐 Integration with Official VRChat Website
+- Chromeにログインしているか確認してください
+- 「🔄 同期」ボタンをクリックして手動同期を試してください
 
-Adds utility buttons to the official “Favorite Worlds” and “World Details” pages.
+## プライバシー
 
-Keeps track of deleted or private worlds, displaying their IDs clearly.
-→ Never wonder again, “What was that private world I had saved?”
+- この拡張機能はVRChatのワールドURLとワールド情報のみを保存します
+- データは外部に送信されず、Chrome Sync Storage内にのみ保存されます
+- 収集したデータは第三者と共有されません
 
-🚀 Upcoming Updates
+## ライセンス
 
-Planned support for VRChat-related external websites and instance pages to expand compatibility.English version coming soon.
+MIT License
 
-🧩 Developer’s Note
+## 更新履歴
 
-This extension was created with a simple goal:
-
-To make organizing VRChat favorite worlds easier, more flexible, and more enjoyable.
-
-Further improvements and new features are planned — stay tuned!
+### v1.0.0 (2025-10-13)
+- 初回リリース
+- お気に入り登録/削除機能
+- エクスポート/インポート機能
+- Chrome Sync対応
+- サムネイル表示機能

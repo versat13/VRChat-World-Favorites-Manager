@@ -1,4 +1,4 @@
-// popup.js - v8.0 (前半: 初期化〜ビュー描画)
+// popup.js - v8.2 (前半: 初期化～ビュー描画)
 
 // ========================================
 // グローバル状態
@@ -200,9 +200,9 @@ function setupEventListeners() {
     if (e.key === 'Enter') confirmRenameFolder();
   });
 
-  // VRCフォルダモーダル
-  document.getElementById('vrcFetchBtn').addEventListener('click', fetchVRCFolder);
-  document.getElementById('vrcSyncBtn').addEventListener('click', syncToVRCFolder);
+  // VRCフォルダモーダル（同期機能のみ）
+  document.getElementById('vrcFetchBtn').addEventListener('click', fetchAllVRCFolders);
+  document.getElementById('vrcSyncBtn').addEventListener('click', syncAllFavorites);
   document.getElementById('vrcCancelBtn').addEventListener('click', () => closeModal('vrcFolderModal'));
 
   // インポート/エクスポートモーダル
@@ -839,10 +839,9 @@ function showNotification(message, type = 'info') {
     notification.classList.remove('show');
   }, 3000);
 }
-// popup.js - v8.0 (後半: フォルダ操作・バッチ処理・モーダル)
 
 // ========================================
-// フォルダドロップ処理（編集バッファ使用）
+// フォルダドロップ処理（編集バッファ使用 + 150件チェック）
 // ========================================
 async function handleFolderDrop(toFolder, event) {
   try {
@@ -851,31 +850,51 @@ async function handleFolderDrop(toFolder, event) {
 
     if (toFolder === fromFolder) return;
 
+    logAction('FOLDER_DROP', { toFolder, fromFolder, worldIds });
+
     let movedCount = 0;
+    let skippedCount = 0;
     let restrictedWorlds = [];
 
     const isToVRC = toFolder.startsWith('worlds');
     const isVRCToVRC = fromFolder.startsWith('worlds') && toFolder.startsWith('worlds');
 
+    if (isToVRC) {
+      const targetFolderWorlds = allWorlds.filter(w => w.folderId === toFolder);
+      const pendingMoves = editingBuffer.movedWorlds.filter(m => m.toFolder === toFolder).length;
+      const totalAfterMove = targetFolderWorlds.length + pendingMoves + worldIds.length;
+      
+      logAction('VRC_LIMIT_CHECK', { 
+        current: targetFolderWorlds.length, 
+        pending: pendingMoves, 
+        adding: worldIds.length, 
+        total: totalAfterMove 
+      });
+      
+      if (totalAfterMove > 150) {
+        showNotification(`${getFolderDisplayName(toFolder)}は150件を超えるため移動できません`, 'error');
+        logError('VRC_LIMIT_EXCEEDED', `Total would be ${totalAfterMove}`);
+        return;
+      }
+    }
+
     for (const worldId of worldIds) {
       const world = allWorlds.find(w => w.id === worldId);
       if (!world) continue;
 
-      // プライベート/削除済みワールドの移動制限
       if ((isVRCToVRC || isToVRC) && 
           (world.releaseStatus === 'private' || world.releaseStatus === 'deleted')) {
         restrictedWorlds.push(world.name);
+        skippedCount++;
         continue;
       }
 
-      // 編集バッファに追加
       editingBuffer.movedWorlds.push({
         worldId,
         fromFolder: world.folderId,
         toFolder
       });
 
-      // UI上で即座に移動
       world.folderId = toFolder;
       movedCount++;
     }
@@ -883,11 +902,12 @@ async function handleFolderDrop(toFolder, event) {
     if (restrictedWorlds.length > 0) {
       const names = restrictedWorlds.slice(0, 3).join('、');
       const more = restrictedWorlds.length > 3 ? ` 他${restrictedWorlds.length - 3}件` : '';
-      showNotification(`プライベート・削除済ワールドはVRCフォルダへ移動できません: 「${names}${more}」`, 'warning');
+      showNotification(`プライベート・削除済ワールドは移動できません: 「${names}${more}」`, 'warning');
     }
 
     if (movedCount > 0) {
       showNotification(`${movedCount}個のワールドを移動しました（確定ボタンを押してください）`, 'info');
+      logAction('DROP_SUCCESS', { movedCount, skippedCount, restrictedCount: restrictedWorlds.length });
     }
 
     selectedWorldIds.clear();
@@ -896,6 +916,7 @@ async function handleFolderDrop(toFolder, event) {
     updateEditingState();
   } catch (error) {
     console.error('Failed to handle folder drop:', error);
+    logError('FOLDER_DROP', error, { toFolder, fromFolder });
     showNotification('移動に失敗しました', 'error');
   }
 }
@@ -913,7 +934,7 @@ function deleteSingleWorld(worldId, folderId) {
       // 編集バッファに追加
       editingBuffer.deletedWorlds.push({ worldId, folderId });
 
-      // UI上から即座に削除
+      // UIから即座に削除
       allWorlds = allWorlds.filter(w => w.id !== worldId);
       selectedWorldIds.delete(worldId);
 
@@ -950,7 +971,7 @@ function deleteSelectedWorlds() {
         }
       }
 
-      // UI上から即座に削除
+      // UIから即座に削除
       allWorlds = allWorlds.filter(w => !selectedWorldIds.has(w.id));
       selectedWorldIds.clear();
 
@@ -1024,12 +1045,22 @@ async function updateSelectedWorlds() {
 }
 
 // ========================================
-// 全ワールドの詳細取得
+// 全ワールドの詳細取得（修正版）
 // ========================================
-async function fetchAllDetails() {
+async function fetchAllDetails(targetFolderId = null) {
   let targetWorlds = allWorlds;
-  if (currentFolder !== 'all') {
+  
+  if (targetFolderId) {
+    // 特定フォルダのみ対象
+    targetWorlds = allWorlds.filter(w => w.folderId === targetFolderId);
+    logAction('FETCH_DETAILS_TARGET_FOLDER', { folderId: targetFolderId, count: targetWorlds.length });
+  } else if (currentFolder !== 'all') {
+    // 現在のフォルダのみ対象
     targetWorlds = allWorlds.filter(w => w.folderId === currentFolder);
+    logAction('FETCH_DETAILS_CURRENT_FOLDER', { folderId: currentFolder, count: targetWorlds.length });
+  } else {
+    // 全フォルダ対象
+    logAction('FETCH_DETAILS_ALL', { count: targetWorlds.length });
   }
 
   const worldsWithoutDetails = targetWorlds.filter(w => !w.thumbnailImageUrl);
@@ -1057,7 +1088,6 @@ async function fetchAllDetails() {
       break;
     }
 
-    // 進行状況を表示
     btn.textContent = `🔄 取得中 (${i + 1}/${totalCount})`;
 
     const world = sortedWorlds[i];
@@ -1094,6 +1124,7 @@ async function fetchAllDetails() {
   renderCurrentView();
 }
 
+
 // ========================================
 // リスト編集中の状態管理
 // ========================================
@@ -1122,8 +1153,6 @@ function updateEditingState() {
     syncBtn.disabled = true;
     importBtn.disabled = true;
     exportBtn.disabled = true;
-
-    // フォルダタブに変更マークを表示（renderFolderTabsで再適用されるので不要）
   } else {
     banner.style.display = 'none';
     refreshBtn.textContent = '🔃 再表示';
@@ -1145,25 +1174,34 @@ async function handleRefreshOrConfirm() {
   }
 }
 
+// ========================================
+// 確定処理
+// ========================================
 async function confirmChanges() {
   try {
     showNotification('変更を保存しています...', 'info');
 
-    // バッチ処理で一括送信
-    const response = await chrome.runtime.sendMessage({
-      type: 'batchUpdateWorlds',
-      changes: {
-        movedWorlds: editingBuffer.movedWorlds,
-        deletedWorlds: editingBuffer.deletedWorlds
-      }
+    const changesToSend = {
+      movedWorlds: editingBuffer.movedWorlds,
+      deletedWorlds: editingBuffer.deletedWorlds
+    };
+
+    logBatch('CONFIRM_START', {
+      movedCount: changesToSend.movedWorlds.length,
+      deletedCount: changesToSend.deletedWorlds.length
     });
 
-    // バッファクリア
+    const response = await chrome.runtime.sendMessage({
+      type: 'batchUpdateWorlds',
+      changes: changesToSend
+    });
+
+    logBatch('CONFIRM_RESPONSE', response);
+
     editingBuffer.movedWorlds = [];
     editingBuffer.deletedWorlds = [];
     isEditingList = false;
 
-    // データ再読み込み
     await loadData();
     renderFolderTabs();
     renderCurrentView();
@@ -1171,30 +1209,73 @@ async function confirmChanges() {
 
     if (response.success) {
       showNotification(`変更を確定しました (${response.movedCount}件)`, 'success');
+      logBatch('CONFIRM_SUCCESS', { movedCount: response.movedCount });
     } else {
-      showNotification(`一部エラー: ${response.errorCount}件失敗`, 'warning');
+      showNotification(`一部エラー: ${response.errorCount}件失敗（データを再読み込みしました）`, 'warning');
+      logError('CONFIRM_PARTIAL_FAIL', `${response.errorCount} errors`, response.errors);
+      
       if (response.errors) {
         console.error('Confirmation errors:', response.errors);
       }
     }
   } catch (error) {
     console.error('Failed to confirm changes:', error);
-    showNotification('確定に失敗しました', 'error');
+    logError('CONFIRM_FAILED', error);
+    
+    showNotification('確定に失敗しました。データを再読み込みします...', 'error');
+    await loadData();
+    renderFolderTabs();
+    renderCurrentView();
+    updateEditingState();
   }
 }
 
 async function refreshScreen() {
   try {
     showNotification('画面を更新しています...', 'info');
+    logAction('REFRESH_START', {});
     await loadData();
     renderFolderTabs();
     renderCurrentView();
     showNotification('画面を更新しました', 'success');
+    logAction('REFRESH_SUCCESS', {});
   } catch (error) {
     console.error('Failed to refresh:', error);
+    logError('REFRESH_FAILED', error);
     showNotification('更新に失敗しました', 'error');
   }
 }
+
+// ========================================
+// デバッグログ（警告レベル対応版）
+// ========================================
+const DEBUG_LOG = true;
+
+function logAction(action, data) {
+  if (!DEBUG_LOG) return;
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [UI-ACTION] ${action}:`, data);
+}
+
+function logError(action, error, data = null) {
+  if (!DEBUG_LOG) return;
+  const timestamp = new Date().toISOString();
+  // ユーザー起因のエラー（制限超過など）は警告レベル
+  if (action.includes('LIMIT') || action.includes('RESTRICTED')) {
+    console.warn(`[${timestamp}] [UI-WARN] ${action}:`, error);
+  } else {
+    console.error(`[${timestamp}] [UI-ERROR] ${action}:`, error);
+  }
+  if (data) console.log('Data:', data);
+}
+
+function logBatch(phase, data) {
+  if (!DEBUG_LOG) return;
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [UI-BATCH ${phase}]:`, data);
+}
+
+// popup.js - v8.2 (後半: フォルダ操作モーダル~インポート/エクスポート)
 
 // ========================================
 // フォルダ操作モーダル
@@ -1296,7 +1377,7 @@ async function confirmDeleteFolder() {
 }
 
 // ========================================
-// VRCフォルダモーダル
+// VRCフォルダモーダル（同期機能のみ）
 // ========================================
 function openVRCFolderModal(folderId) {
   const vrcFolder = vrcFolders.find(f => f.id === folderId);
@@ -1311,8 +1392,7 @@ function openVRCFolderModal(folderId) {
   openModal('vrcFolderModal');
 }
 
-async function fetchVRCFolder() {
-  const folderId = document.getElementById('vrcFolderIdBadge').textContent.replace('VRChat.', 'worlds');
+async function fetchAllVRCFolders() {
   const btn = document.getElementById('vrcFetchBtn');
   const originalText = btn.textContent;
 
@@ -1321,30 +1401,26 @@ async function fetchVRCFolder() {
     btn.disabled = true;
     showNotification('VRChatから取得中...', 'info');
 
-    const response = await chrome.runtime.sendMessage({
-      type: 'fetchVRCFolder',
-      folderId: folderId
-    });
+    const response = await chrome.runtime.sendMessage({ type: 'fetchAllVRCFolders' });
 
     if (response.success) {
-      let message = `取得完了: ${response.addedCount}個追加(全${response.totalCount}個)`;
-      
-      if (response.differentFolder && response.differentFolder.length > 0) {
-        const names = response.differentFolder.slice(0, 3).map(w => w.worldName).join('、');
-        const more = response.differentFolder.length > 3 ? ` 他${response.differentFolder.length - 3}件` : '';
-        message += `\n\n既に別フォルダに存在: 「${names}${more}」`;
-      }
-      
-      showNotification(message, 'success');
+      showNotification(`取得完了: ${response.addedCount}個追加`, 'success');
       await loadData();
       renderFolderTabs();
       renderCurrentView();
       closeModal('vrcFolderModal');
+
+      if (response.addedCount > 0) {
+        showNotification('サムネイル情報を取得中...', 'info');
+        setTimeout(() => {
+          fetchAllDetails();
+        }, 1000);
+      }
     } else {
       showNotification(`取得失敗: ${response.error}`, 'error');
     }
   } catch (error) {
-    console.error('Failed to fetch VRC folder:', error);
+    console.error('Failed to fetch all VRC folders:', error);
     showNotification('取得に失敗しました', 'error');
   } finally {
     btn.textContent = originalText;
@@ -1352,40 +1428,20 @@ async function fetchVRCFolder() {
   }
 }
 
-async function syncToVRCFolder() {
-  const folderId = document.getElementById('vrcFolderIdBadge').textContent.replace('VRChat.', 'worlds');
+async function syncAllFavorites() {
   const btn = document.getElementById('vrcSyncBtn');
   const originalText = btn.textContent;
 
-  const count = allWorlds.filter(w => w.folderId === folderId).length;
-  if (count > 100) {
-    showNotification('フォルダが100件を超えています。100件以下にしてください。', 'error');
-    return;
-  }
-
   try {
-    btn.textContent = '⚠️ 同期中...';
+    btn.textContent = '🔄 同期中...';
     btn.disabled = true;
-    showNotification('VRChatに同期中...', 'info');
+    showNotification('VRChatと同期中...', 'info');
 
-    const response = await chrome.runtime.sendMessage({
-      type: 'syncToVRCFolder',
-      folderId: folderId
-    });
+    const response = await chrome.runtime.sendMessage({ type: 'syncAllFavorites' });
 
     if (response.success) {
-      const totalOperations = response.addedCount + response.removedCount;
-      let message = `同期完了: 追加 ${response.addedCount}個 / 削除 ${response.removedCount}個`;
-      if (response.errors) {
-        message += `\nエラー: ${response.errors.slice(0, 3).join(', ')}`;
-      }
-      showNotification(message, response.errors ? 'warning' : 'success');
-      
-      // 反映監視を開始
-      if (totalOperations > 0) {
-        const estimatedSeconds = totalOperations * 1;
-        showSyncReflectionTimer(estimatedSeconds);
-      }
+      const message = `同期完了!\n追加: ${response.added}件\n削除: ${response.removed}件${response.moved ? `\n移動: ${response.moved}件` : ''}`;
+      showNotification(message, 'success');
       
       await loadData();
       renderFolderTabs();
@@ -1395,7 +1451,7 @@ async function syncToVRCFolder() {
       showNotification(`同期失敗: ${response.error}`, 'error');
     }
   } catch (error) {
-    console.error('Failed to sync to VRC folder:', error);
+    console.error('Failed to sync all favorites:', error);
     showNotification('同期に失敗しました', 'error');
   } finally {
     btn.textContent = originalText;
@@ -1403,9 +1459,6 @@ async function syncToVRCFolder() {
   }
 }
 
-// ========================================
-// VRChat完全同期
-// ========================================
 async function openSyncMenu() {
   const btn = document.getElementById('syncBtn');
   const originalText = btn.textContent;
@@ -1418,20 +1471,8 @@ async function openSyncMenu() {
     const response = await chrome.runtime.sendMessage({ type: 'syncAllFavorites' });
 
     if (response.success) {
-      const totalOperations = response.removed + response.moved + response.added;
-      const message = `同期完了!\n追加: ${response.added}件 (計${response.totalAdd}件中)\n削除: ${response.removed}件 (計${response.totalRemove}件中)${response.moved ? `\n移動: ${response.moved}件` : ''}`;
-      
-      if (response.errors && response.errors.length > 0) {
-        showNotification(`${message}\n\nエラー: ${response.errors.slice(0, 3).join(', ')}`, 'warning');
-      } else {
-        showNotification(message, 'success');
-      }
-      
-      // 反映監視を開始（操作数に応じて時間を計算）
-      if (totalOperations > 0) {
-        const estimatedSeconds = totalOperations * 1; // 1件につき約1秒
-        showSyncReflectionTimer(estimatedSeconds);
-      }
+      const message = `同期完了!\n追加: ${response.added}件\n削除: ${response.removed}件${response.moved ? `\n移動: ${response.moved}件` : ''}`;
+      showNotification(message, 'success');
       
       await loadData();
       renderFolderTabs();
@@ -1448,31 +1489,8 @@ async function openSyncMenu() {
   }
 }
 
-// VRC同期の反映タイマーを表示
-function showSyncReflectionTimer(estimatedSeconds) {
-  const notification = document.getElementById('notification');
-  let remainingSeconds = estimatedSeconds;
-  
-  const updateTimer = () => {
-    if (remainingSeconds > 0) {
-      notification.textContent = `⏱️ VRChat公式への反映まで約${remainingSeconds}秒...`;
-      notification.className = 'notification info show';
-      remainingSeconds--;
-      setTimeout(updateTimer, 1000);
-    } else {
-      notification.textContent = '✅ VRChat公式への反映が完了しました';
-      notification.className = 'notification success show';
-      setTimeout(() => {
-        notification.classList.remove('show');
-      }, 3000);
-    }
-  };
-  
-  updateTimer();
-}
-
 // ========================================
-// ワールド追加（重複チェック付き）
+// ワールド追加（VRCフォルダインポート制限）
 // ========================================
 async function addWorldManual() {
   pendingWorldData = null;
@@ -1551,7 +1569,7 @@ function openAddWorldModalWithInput(initialValue = '') {
   const folderList = document.createElement('div');
   folderList.className = 'folder-select-list';
 
-  const folderOptions = generateFolderOptions(true, false);
+  const folderOptions = generateFolderOptions(false, false);
   
   folderOptions.forEach((folder, index) => {
     const isDisabled = folder.disabled || folder.isDisabled || false;
@@ -1629,27 +1647,19 @@ function openAddWorldModalWithInput(initialValue = '') {
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 
-  // オーバーレイクリックで閉じる
   overlay.onclick = (e) => {
     if (e.target === overlay) {
       overlay.remove();
     }
   };
   
-  // Enterキーで追加
   input.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
       confirmButton.click();
     }
   });
 
-  // 入力欄にフォーカス
   setTimeout(() => input.focus(), 100);
-}
-
-function openAddWorldModal() {
-  const worldId = pendingWorldData?.id || '';
-  openAddWorldModalWithInput(worldId);
 }
 
 async function confirmAddWorldWithFolder(folderId, worldIdOrUrl = null) {
@@ -1741,6 +1751,17 @@ async function confirmMoveFolderWithId(toFolder) {
     let skippedCount = 0;
     let restrictedWorlds = [];
 
+    if (toFolder.startsWith('worlds')) {
+      const targetFolderWorlds = allWorlds.filter(w => w.folderId === toFolder);
+      const pendingMoves = editingBuffer.movedWorlds.filter(m => m.toFolder === toFolder).length;
+      const totalAfterMove = targetFolderWorlds.length + pendingMoves + currentMovingWorldIds.length;
+      
+      if (totalAfterMove > 100) {
+        showNotification(`${getFolderDisplayName(toFolder)}は100件を超えるため移動できません`, 'error');
+        return;
+      }
+    }
+
     for (const worldId of currentMovingWorldIds) {
       const world = allWorlds.find(w => w.id === worldId);
       if (!world) continue;
@@ -1780,6 +1801,7 @@ async function confirmMoveFolderWithId(toFolder) {
 
     if (movedCount > 0) {
       showNotification(`${movedCount}個のワールドを移動しました（確定ボタンを押してください）`, 'info');
+      logAction('MOVE_FOLDER_SUCCESS', { movedCount, skippedCount, restrictedCount: restrictedWorlds.length });
     }
 
     selectedWorldIds.clear();
@@ -1788,6 +1810,7 @@ async function confirmMoveFolderWithId(toFolder) {
     updateEditingState();
   } catch (error) {
     console.error('Failed to move worlds:', error);
+    logError('MOVE_FOLDER_FAILED', error, { toFolder, worldIds: currentMovingWorldIds });
     showNotification('移動に失敗しました', 'error');
   }
 }
@@ -1842,9 +1865,6 @@ function generateFolderOptions(includeVRC = true, includeAll = false) {
   return options;
 }
 
-// ========================================
-// 汎用フォルダ選択モーダル
-// ========================================
 function createFolderOption(id, name, selected = false, extraClass = '', badge = null) {
   const option = document.createElement('div');
   option.className = `folder-option ${extraClass} ${selected ? 'selected' : ''}`;
@@ -2025,7 +2045,7 @@ async function handleVRChatImport() {
 
     if (response.success) {
       showNotification(
-        `取得完了: ${response.addedCount}個追加(全${response.totalFolders}フォルダ)`,
+        `取得完了: ${response.addedCount}個追加 (全${response.totalFolders}フォルダ)`,
         'success'
       );
       await loadData();
@@ -2064,7 +2084,7 @@ function openFolderSelectForExport(type) {
 }
 
 function openFolderSelectForImport(type) {
-  const folderOptions = generateFolderOptions(true, false);
+  const folderOptions = generateFolderOptions(false, false);
 
   showFolderSelectModal({
     title: '📥 インポート先フォルダ',
@@ -2088,7 +2108,7 @@ async function executeExport(type, folderId) {
         const local = await chrome.storage.local.get(['vrcWorlds', 'worldDetails']);
 
         const exportData = {
-          version: '8.0',
+          version: '8.2',
           syncWorlds: sync.worlds || [],
           folders: sync.folders || [],
           vrcFolderData: sync.vrcFolderData || {},
@@ -2147,12 +2167,17 @@ function getDateString() {
   return new Date().toISOString().split('T')[0];
 }
 
+// ========================================
+// ファイルインポート（修正版）
+// ========================================
 async function handleFileImport(event) {
   const file = event.target.files[0];
   if (!file) return;
 
   const type = event.target.dataset.type;
   const targetFolder = event.target.dataset.targetFolder;
+
+  logAction('FILE_IMPORT_START', { filename: file.name, type, targetFolder });
 
   try {
     const text = await file.text();
@@ -2174,15 +2199,26 @@ async function handleFileImport(event) {
         });
 
         await chrome.storage.local.set({
-          vrcWorlds: data.vrcWorlds || [],
-          worldDetails: data.worldDetails || {}
+          vrcWorlds: data.vrcWorlds || []
         });
+
+        // worldDetailsの復元（分割形式に対応）
+        if (data.worldDetails) {
+          await saveWorldDetailsBatch(data.worldDetails);
+        }
 
         showNotification('完全バックアップを復元しました', 'success');
         await loadData();
         renderFolderTabs();
         renderCurrentView();
         event.target.value = '';
+        
+        // 全フォルダの詳細取得を開始
+        showNotification('サムネイル情報を取得中...', 'info');
+        setTimeout(() => {
+          fetchAllDetails('all');
+        }, 1000);
+        
         return;
       }
 
@@ -2214,46 +2250,46 @@ async function handleFileImport(event) {
       return;
     }
 
-    const existingIds = new Set(allWorlds.map(w => w.id));
-    let addedCount = 0;
-    let skippedCount = 0;
+    logAction('FILE_IMPORT_PARSED', { count: importWorlds.length });
 
-    for (const world of importWorlds) {
-      if (existingIds.has(world.id)) {
-        skippedCount++;
-        continue;
+    showNotification(`${importWorlds.length}件のワールドをインポート中...`, 'info');
+    
+    const response = await chrome.runtime.sendMessage({
+      type: 'batchImportWorlds',
+      worlds: importWorlds,
+      targetFolder: targetFolder
+    });
+
+    logAction('FILE_IMPORT_RESPONSE', response);
+
+    if (response.success || response.addedCount > 0 || response.movedCount > 0) {
+      const message = `インポート完了: ${response.addedCount}個追加 / ${response.movedCount}個移動 / ${response.skippedCount}個スキップ`;
+      showNotification(message, 'success');
+      
+      await loadData();
+      renderFolderTabs();
+      renderCurrentView();
+
+      if (response.addedCount > 0) {
+        showNotification('サムネイル情報を取得中...', 'info');
+        setTimeout(() => {
+          // インポート先フォルダの詳細情報を取得
+          fetchAllDetails(targetFolder);
+        }, 1000);
       }
-
-      const response = await chrome.runtime.sendMessage({
-        type: 'addWorld',
-        world: { ...world, folderId: targetFolder }
-      });
-
-      if (response.success) {
-        addedCount++;
-      } else {
-        skippedCount++;
-      }
-    }
-
-    showNotification(
-      `インポート完了: ${addedCount}個追加 / ${skippedCount}個スキップ`,
-      'success'
-    );
-
-    await loadData();
-    renderFolderTabs();
-    renderCurrentView();
-
-    if (addedCount > 0) {
-      showNotification('サムネイル情報を取得中...', 'info');
-      setTimeout(() => {
-        fetchAllDetails();
-      }, 1000);
+    } else {
+      const errorMsg = response.reason === 'vrc_limit_exceeded' 
+        ? 'VRCフォルダが150件を超えるためインポートできません'
+        : response.reason === 'sync_limit_exceeded'
+        ? '共有ストレージが800件を超えるためインポートできません'
+        : `インポート失敗: ${response.error}`;
+      showNotification(errorMsg, 'error');
+      logError('FILE_IMPORT_FAILED', response.error || response.reason);
     }
 
   } catch (error) {
     console.error('Import failed:', error);
+    logError('FILE_IMPORT_ERROR', error);
     showNotification('インポートに失敗しました', 'error');
   }
 
