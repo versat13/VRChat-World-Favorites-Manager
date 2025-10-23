@@ -13,7 +13,14 @@ VRChatのプライベートワールドをブラウザ上でお気に入り登�
 
 ## インストール方法
 
+<<<<<<< HEAD
 ### 1. ファイルの準備
+=======
+α番だけどとりあえずウェブストアで公開  
+https://chromewebstore.google.com/detail/vrchat-favorite-worlds-ma/dilmkhbdfgobkiemjhldemmbceoagoni?authuser=0&hl=ja
+
+---
+>>>>>>> 9609b38333c996e307731483cf72355d773f6853
 
 以下のファイルを同じフォルダに配置します：
 
