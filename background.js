@@ -1,5 +1,5 @@
 // background.js
-console.log('[Background] VRChat World Favorites Manager v8.3 (Modular) loaded');
+console.log('[Background] VRChat World Favorites Manager v1.0.2 (Modular) loaded');
 
 // ========================================
 // モジュール読み込み
@@ -7,6 +7,7 @@ console.log('[Background] VRChat World Favorites Manager v8.3 (Modular) loaded')
 try {
   importScripts(
     'bg_constants.js',
+    'bg_error_handler.js',
     'bg_utils.js',
     'bg_storage_service.js',
     'bg_world_data_model.js',
@@ -47,7 +48,7 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 // ========================================
-// コンテキストメニュー
+// コンテキストメニュー (修正版)
 // ========================================
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if ((info.menuItemId === 'vrchat-fav-add' || info.menuItemId === 'vrchat-fav-add-link') && tab) {
@@ -58,16 +59,116 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
     if (worldId) {
       try {
-        // chrome.storageに一時保存してから新しいタブでpopupを開く
-        await chrome.storage.local.set({ pendingWorldIdFromContext: worldId });
-        await chrome.tabs.create({ url: 'popup.html' });
-        logAction('CONTEXT_MENU_POPUP_OPENED', { worldId });
+        logAction('CONTEXT_MENU_ADD_START', { worldId });
+        
+        // ワールド詳細を取得
+        const details = await getSingleWorldDetailsInternal(worldId);
+        
+        if (!details) {
+          logError('CONTEXT_MENU_FETCH_FAILED', 'Failed to fetch world details', { worldId });
+          // 通知を表示（Chrome通知API使用）
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icon128.png',
+            title: 'VRChat World Manager',
+            message: 'ワールド情報の取得に失敗しました'
+          });
+          return;
+        }
+
+        // 既存チェック
+        const allWorlds = await getAllWorldsInternal();
+        const existing = allWorlds.find(w => w.id === worldId);
+
+        if (existing) {
+          // 既に存在する場合は通知のみ
+          const folderName = existing.folderId === 'none' ? '未分類' :
+            existing.folderId.startsWith('worlds') ? `VRC ${existing.folderId.replace('worlds', '')}` :
+            existing.folderId;
+          
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icon128.png',
+            title: 'VRChat World Manager',
+            message: `「${details.name}」は既に「${folderName}」に登録済みです`
+          });
+          logAction('CONTEXT_MENU_ALREADY_EXISTS', { worldId, folderId: existing.folderId });
+          return;
+        }
+
+        // 未分類フォルダに追加
+        const addResult = await addWorldToFolder({
+          ...details,
+          folderId: 'none'
+        });
+
+        if (addResult.success) {
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icon128.png',
+            title: 'VRChat World Manager',
+            message: `「${details.name}」を未分類に追加しました`
+          });
+          logAction('CONTEXT_MENU_ADD_SUCCESS', { worldId });
+        } else {
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icon128.png',
+            title: 'VRChat World Manager',
+            message: `追加に失敗しました: ${addResult.reason || addResult.error}`
+          });
+          logError('CONTEXT_MENU_ADD_FAILED', addResult.reason || addResult.error, { worldId });
+        }
+
       } catch (e) {
-        logError('CONTEXT_MENU_OPEN_FAILED', e, { worldId });
+        logError('CONTEXT_MENU_ERROR', e, { worldId });
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'icon128.png',
+          title: 'VRChat World Manager',
+          message: 'エラーが発生しました'
+        });
       }
     }
   }
 });
+
+// ========================================
+// 内部ヘルパー関数
+// ========================================
+async function getSingleWorldDetailsInternal(worldId) {
+  try {
+    const response = await fetch(`${API_BASE}/worlds/${worldId}`, {
+      method: 'GET',
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return {
+          id: worldId,
+          name: '[Deleted]',
+          authorName: null,
+          releaseStatus: 'deleted',
+          thumbnailImageUrl: null
+        };
+      }
+      return null;
+    }
+
+    const data = await response.json();
+    return {
+      id: data.id,
+      name: data.name,
+      authorName: data.authorName,
+      releaseStatus: data.releaseStatus,
+      thumbnailImageUrl: data.thumbnailImageUrl
+    };
+  } catch (error) {
+    logError('GET_WORLD_DETAILS_INTERNAL', error, { worldId });
+    return null;
+  }
+}
 
 // ========================================
 // メッセージハンドラ (ルーター)
@@ -98,7 +199,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'batchUpdateWorlds':
       batchUpdateWorlds(request.changes, sendResponse);
       return true;
-    case 'COMMIT_BUFFER': // (エイリアス)
+    case 'COMMIT_BUFFER':
       commitBuffer(request, sendResponse);
       return true;
     case 'detectDuplicates':

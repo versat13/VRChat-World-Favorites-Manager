@@ -1,4 +1,4 @@
-console.log("[VRC Resolver] World Page Script v7.2 (Improved Edition)");
+console.log("[VRC Resolver] World Page Script v1.0.1");
 
 (function() {
   'use strict';

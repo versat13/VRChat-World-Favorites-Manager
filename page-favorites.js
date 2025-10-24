@@ -1,4 +1,4 @@
-console.log("[VRC Resolver] Favorites Page Script v5.0 (Improved Edition)");
+console.log("[VRC Resolver] Favorites Page Script v1.0.1");
 
 (function () {
   'use strict';

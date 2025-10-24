@@ -24,7 +24,7 @@ async function fetchVRChatFavoriteGroups() {
 }
 
 async function fetchVRChatFavoritesByTag(tag) {
-  const n = 100; // 1フォルダあたりの最大取得数
+  const n = 100;
   logAction('API_FETCH_FAVORITES_START', { tag });
   const response = await fetch(`${API_BASE}/favorites?n=${n}&type=world&tag=${tag}`, {
     method: 'GET',
@@ -43,35 +43,55 @@ async function fetchVRChatFavoritesByTag(tag) {
 }
 
 /**
- * ワールド詳細情報をバッチ取得
+ * ワールド詳細をバッチ取得（並列処理で高速化）
  */
 async function fetchWorldDetailsBatch(worldIds) {
   const detailsMap = {};
+  const PARALLEL_LIMIT = 5;
+  
+  const chunks = [];
+  for (let i = 0; i < worldIds.length; i += PARALLEL_LIMIT) {
+    chunks.push(worldIds.slice(i, i + PARALLEL_LIMIT));
+  }
+  
+  for (const chunk of chunks) {
+    const promises = chunk.map(async (worldId) => {
+      try {
+        const response = await fetch(`${API_BASE}/worlds/${worldId}`, {
+          method: 'GET',
+          credentials: 'include'
+        });
 
-  for (const worldId of worldIds) {
-    try {
-      const response = await fetch(`${API_BASE}/worlds/${worldId}`, {
-        method: 'GET',
-        credentials: 'include'
-      });
+        if (!response.ok) {
+          logError('API_FETCH_DETAILS_ERROR', `Status ${response.status}`, { worldId });
+          return null;
+        }
 
-      if (!response.ok) {
-        logError('API_FETCH_DETAILS_ERROR', `Status ${response.status}`, { worldId });
-        continue;
+        const world = await response.json();
+        return {
+          id: world.id,
+          details: {
+            name: world.name,
+            authorName: world.authorName,
+            releaseStatus: world.releaseStatus,
+            thumbnailImageUrl: world.thumbnailImageUrl
+          }
+        };
+      } catch (e) {
+        logError('API_FETCH_DETAILS_EXCEPTION', e, { worldId });
+        return null;
       }
-
-      const world = await response.json();
-      detailsMap[world.id] = {
-        name: world.name,
-        authorName: world.authorName,
-        releaseStatus: world.releaseStatus,
-        thumbnailImageUrl: world.thumbnailImageUrl
-      };
-
-      await sleep(200); // レート制限対策
-    } catch (e) {
-      logError('API_FETCH_DETAILS_EXCEPTION', e, { worldId });
-    }
+    });
+    
+    const results = await Promise.all(promises);
+    
+    results.forEach(result => {
+      if (result) {
+        detailsMap[result.id] = result.details;
+      }
+    });
+    
+    await sleep(100);
   }
 
   logAction('API_FETCH_DETAILS_BATCH_COMPLETE', {
@@ -108,7 +128,7 @@ async function getVRCFavoriteInfo(worldId, sendResponse) {
         success: true,
         favorited: true,
         favoriteRecordId: favorite.id,
-        folderId: favorite.tags?.[0] || 'worlds1' // API名
+        folderId: favorite.tags?.[0] || 'worlds1'
       });
     }
   } catch (error) {
@@ -235,10 +255,10 @@ async function updateVRCFolderData(worldGroups) {
 
   for (let i = 0; i < worldGroups.length && i < 4; i++) {
     const group = worldGroups[i];
-    const mappedId = folderIds[i]; // worlds1
+    const mappedId = folderIds[i];
     vrcFolderData[mappedId] = {
-      name: group.name,           // vrc0
-      displayName: group.displayName, // Favorite World 1
+      name: group.name,
+      displayName: group.displayName,
       vrcApiName: group.name
     };
   }
@@ -247,40 +267,47 @@ async function updateVRCFolderData(worldGroups) {
   return vrcFolderData;
 }
 
-// グローバルまたはファイルスコープで定義
-let VRC_TAG_MAP = {}; 
+// 🔥 修正: VRC_TAG_MAPの初期化を明示的に管理
+let VRC_TAG_MAP = null; // 未初期化を明示
+
+/**
+ * VRC_TAG_MAPを確実に初期化する
+ */
+async function ensureVRCTagMapInitialized() {
+  if (VRC_TAG_MAP === null) {
+    VRC_TAG_MAP = await getVRCFolderTagMap();
+    logAction('VRC_TAG_MAP_INITIALIZED', VRC_TAG_MAP);
+  }
+  return VRC_TAG_MAP;
+}
 
 /**
  * ストレージからVRChat公式タグとローカルフォルダIDのマップを取得する
- * (updateVRCFolderDataで保存されたvrcFolderDataを利用)
- * @returns {Promise<Object>} マッピングオブジェクト { 'worlds1': 'worlds1', 'worlds2': 'vrc0', ... }
  */
 async function getVRCFolderTagMap() {
-    // vrcFolderDataはchrome.storage.syncに保存されていると想定
-    const sync = await chrome.storage.sync.get(['vrcFolderData']);
-    const vrcFolderData = sync.vrcFolderData || {}; // { worlds1: {..., vrcApiName: 'worlds1'}, ... }の構造
+  const sync = await chrome.storage.sync.get(['vrcFolderData']);
+  const vrcFolderData = sync.vrcFolderData || {};
 
-    const tagMap = {};
-    // vrcFolderDataを反復処理し、ローカルIDをキー、VRC API名を値とするマップを作成
-    for (const localId in vrcFolderData) {
-        // vrcApiNameはupdateVRCFolderDataでグループのname（vrc0など）として保存されている
-        if (vrcFolderData[localId].vrcApiName) {
-            tagMap[localId] = vrcFolderData[localId].vrcApiName;
-        }
+  const tagMap = {};
+  for (const localId in vrcFolderData) {
+    if (vrcFolderData[localId].vrcApiName) {
+      tagMap[localId] = vrcFolderData[localId].vrcApiName;
     }
-    return tagMap;
+  }
+  return tagMap;
 }
 
 /**
  * ローカルフォルダIDからVRChatの公式タグ名を取得する
- * @param {string} localFolderId 拡張機能の内部フォルダID (例: 'worlds2')
- * @returns {string} VRChat APIが認識する公式タグ名 (例: 'vrc0' または 'worlds2' - マッピングがない場合はフォールバック)
  */
 function getOfficialTagFromLocalFolderId(localFolderId) {
-    // VRC_TAG_MAP が取得済みであることを前提とする
-    return VRC_TAG_MAP[localFolderId] || localFolderId; 
+  // VRC_TAG_MAPが初期化済みであることを前提とする
+  if (VRC_TAG_MAP === null) {
+    logError('VRC_TAG_MAP_NOT_INITIALIZED', 'VRC_TAG_MAP is not initialized', { localFolderId });
+    return localFolderId; // フォールバック
+  }
+  return VRC_TAG_MAP[localFolderId] || localFolderId;
 }
-
 
 async function fetchAllVRCFolders(sendResponse) {
   try {
@@ -296,17 +323,17 @@ async function fetchAllVRCFolders(sendResponse) {
 
     for (let i = 0; i < worldGroups.length && i < 4; i++) {
       const group = worldGroups[i];
-      const mappedFolderId = folderIds[i]; // 'worlds1'
+      const mappedFolderId = folderIds[i];
 
       try {
-        const favorites = await fetchVRChatFavoritesByTag(group.name); // 'vrc0'
+        const favorites = await fetchVRChatFavoritesByTag(group.name);
         for (const fav of favorites) {
           if (fav.favoriteId) {
             allVRCWorlds.push({
               id: fav.favoriteId,
               folderId: mappedFolderId,
               favoriteRecordId: fav.id,
-              name: null, // あとで詳細取得
+              name: null,
             });
           }
         }
@@ -366,7 +393,6 @@ async function fetchAllVRCFolders(sendResponse) {
     let addedCount = 0;
     const addErrors = [];
     for (const world of toAdd) {
-      // addWorldToFolderは制限チェックと追加を行う
       const result = await addWorldToFolder(world);
       if (result.success) addedCount++;
       else addErrors.push(`${world.id}: ${result.reason || result.error}`);
@@ -391,14 +417,9 @@ async function fetchAllVRCFolders(sendResponse) {
 // VRC同期 (エクスポート)
 /**
  * 完全同期: 拡張機能の状態をVRC公式に反映
- * Phase 0: 状態取得
- * Phase 1: 削除 (VRCにあるが拡張機能にないワールド)
- * Phase 2: 移動 (フォルダが異なるワールド)
- * Phase 3: 追加 (拡張機能にあるがVRCにないワールド)
- * Phase 4: favoriteRecordId の更新
+ * 🔥 修正: VRC_TAG_MAPの初期化を確実に行う
  */
 async function syncAllFavorites(sendResponse) {
-  // 既存のコードからデバッグ定数と変数を再定義
   const DEBUG = true;
   const SYNC_DELAY = 500;
   
@@ -420,16 +441,15 @@ async function syncAllFavorites(sendResponse) {
     // ========================================
     if (DEBUG) console.log('[SYNC_EXPORT] Phase 0: 状態取得開始');
     
-    // 🚨【重要修正箇所: ストレージからマッピング情報を取得】
-    VRC_TAG_MAP = await getVRCFolderTagMap();
+    // 🔥 修正: VRC_TAG_MAPを確実に初期化
+    VRC_TAG_MAP = await ensureVRCTagMapInitialized();
     if (DEBUG) console.log('[SYNC_EXPORT] VRC Tag Map loaded:', VRC_TAG_MAP);
 
-    // VRC側の状態を取得 (既存のまま)
+    // VRC側の状態を取得
     const worldGroups = await fetchVRChatFavoriteGroups();
-    const vrcMap = new Map(); // worldId → { folderId, favoriteRecordId, details }
+    const vrcMap = new Map();
     const folderIds = ['worlds1', 'worlds2', 'worlds3', 'worlds4'];
     
-    // VRChatからのお気に入り全件取得とvrcMap構築 (既存のまま)
     for (let i = 0; i < worldGroups.length && i < 4; i++) {
       const group = worldGroups[i];
       const mappedFolderId = folderIds[i];
@@ -455,11 +475,10 @@ async function syncAllFavorites(sendResponse) {
     
     if (DEBUG) console.log('[SYNC_EXPORT] VRC側ワールド数:', vrcMap.size);
     
-    // ローカルのVRCワールドを取得 (既存のまま)
+    // ローカルのVRCワールドを取得
     const local = await chrome.storage.local.get(['vrcWorlds']);
     const localVRCWorlds = local.vrcWorlds || [];
     
-    // ... (ローカル重複チェックとlocalMap構築は既存のまま)
     const localMap = new Map();
     for (const world of localVRCWorlds) {
       localMap.set(world.id, {
@@ -470,13 +489,11 @@ async function syncAllFavorites(sendResponse) {
     if (DEBUG) console.log('[SYNC_EXPORT] ローカル側ワールド数:', localMap.size);
     
     // ========================================
-    // 差分計算 (既存のまま)
+    // 差分計算
     // ========================================
-    // ... (toRemove, toMove, toAdd の計算は既存のまま)
-    
-    const toRemove = []; // { worldId, favoriteRecordId, folderId }
-    const toMove = [];   // { worldId, oldFavoriteRecordId, fromFolder, toFolder }
-    const toAdd = [];    // { worldId, folderId }
+    const toRemove = [];
+    const toMove = [];
+    const toAdd = [];
     
     // VRCにあるが拡張機能にないもの → 削除
     for (const [worldId, vrcData] of vrcMap) {
@@ -535,9 +552,8 @@ async function syncAllFavorites(sendResponse) {
     }
 
     // ========================================
-    // Phase 1: 削除 (変更なし)
+    // Phase 1: 削除
     // ========================================
-    // ... (削除処理は既存のまま)
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
     if (DEBUG) console.log('[SYNC_EXPORT] Phase 1: 削除処理 (' + toRemove.length + '件)');
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
@@ -604,7 +620,6 @@ async function syncAllFavorites(sendResponse) {
         await sleep(SYNC_DELAY);
         
         // 2. 追加
-        // 🚨【修正箇所: 公式タグ名への変換】
         const targetTag = getOfficialTagFromLocalFolderId(item.toFolder);
         if (DEBUG) console.log(`[SYNC_EXPORT]   => VRC公式タグ: ${targetTag}`);
 
@@ -615,13 +630,12 @@ async function syncAllFavorites(sendResponse) {
           body: JSON.stringify({
             type: 'world',
             favoriteId: item.worldId,
-            tags: [targetTag] // 修正: item.toFolder から targetTag へ
+            tags: [targetTag]
           })
         });
         
         if (addResponse.ok) {
           const addData = await addResponse.json();
-          // 新しい favoriteRecordId を記録
           vrcMap.set(item.worldId, {
             folderId: item.toFolder,
             favoriteRecordId: addData.id,
@@ -663,8 +677,7 @@ async function syncAllFavorites(sendResponse) {
         
         if (DEBUG) console.log(`[SYNC_EXPORT] 追加: ${item.worldId} → ${item.folderId}`);
         
-        // 🚨【修正箇所: 公式タグ名への変換】
-        const targetTag = getOfficialTagFromLocalFolderId(item.folderId); 
+        const targetTag = getOfficialTagFromLocalFolderId(item.folderId);
         if (DEBUG) console.log(`[SYNC_EXPORT]   => VRC公式タグ: ${targetTag}`);
 
         const response = await fetch(`${API_BASE}/favorites`, {
@@ -674,13 +687,12 @@ async function syncAllFavorites(sendResponse) {
           body: JSON.stringify({
             type: 'world',
             favoriteId: item.worldId,
-            tags: [targetTag] // 修正: item.folderId から targetTag へ
+            tags: [targetTag]
           })
         });
         
         if (response.ok) {
           const data = await response.json();
-          // 新しい favoriteRecordId を記録
           vrcMap.set(item.worldId, {
             folderId: item.folderId,
             favoriteRecordId: data.id,
@@ -705,7 +717,7 @@ async function syncAllFavorites(sendResponse) {
     if (DEBUG) console.log(`[SYNC_EXPORT] Phase 3 完了: ${addedCount}/${toAdd.length}件追加`);
     
     // ========================================
-    // Phase 4: favoriteRecordId の更新 (既存のまま)
+    // Phase 4: favoriteRecordId の更新
     // ========================================
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
     if (DEBUG) console.log('[SYNC_EXPORT] Phase 4: favoriteRecordId 更新');
@@ -718,13 +730,10 @@ async function syncAllFavorites(sendResponse) {
       const vrcData = vrcMap.get(localWorld.id);
       
       if (vrcData) {
-        // VRCに存在する → favoriteRecordId を更新
         updatedVRCWorlds.push({
           ...localWorld,
           favoriteRecordId: vrcData.favoriteRecordId,
-          // localWorldのfolderIdはローカルで整合が取れているはずなので、vrcData.folderIdで上書きしない
-          // vrcData.folderIdはVRC側の最新情報だが、ローカルの最新情報（localWorld.folderId）を維持する
-          folderId: localWorld.folderId // localWorldのfolderIdを維持
+          folderId: localWorld.folderId
         });
         
         if (localWorld.favoriteRecordId !== vrcData.favoriteRecordId) {
@@ -732,8 +741,6 @@ async function syncAllFavorites(sendResponse) {
           if (DEBUG) console.log(`[SYNC_EXPORT] 更新: ${localWorld.id} → ${vrcData.favoriteRecordId}`);
         }
       } else {
-        // VRCに存在しない（削除された） → localVRCWorldsからは削除するべき
-        // ここではvrcMapに存在しないものは追加しないことで、ローカルからも削除される
         if (DEBUG) console.log(`[SYNC_EXPORT] 削除済み: ${localWorld.id}`);
       }
     }
@@ -742,7 +749,7 @@ async function syncAllFavorites(sendResponse) {
     if (DEBUG) console.log(`[SYNC_EXPORT] favoriteRecordId 更新: ${updateCount}件`);
     
     // ========================================
-    // 完了 (既存のまま)
+    // 完了
     // ========================================
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
     if (DEBUG) console.log('[SYNC_EXPORT] 完全同期完了');
@@ -784,12 +791,12 @@ async function syncAllFavorites(sendResponse) {
     });
   }
 }
+
 // ========================================
 // 単一ワールド詳細取得 (popup.js用)
 // ========================================
 /**
  * 単一ワールドの詳細情報を取得
- * popup.jsのfetchWorldDetails呼び出しに対応
  */
 async function getSingleWorldDetails(worldId, sendResponse) {
   try {
@@ -802,7 +809,6 @@ async function getSingleWorldDetails(worldId, sendResponse) {
 
     if (!response.ok) {
       if (response.status === 404) {
-        // 削除済みワールド
         sendResponse({
           success: true,
           status: 404,

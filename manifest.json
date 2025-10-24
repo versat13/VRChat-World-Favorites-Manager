@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "VRChat Favorite Worlds Manager",
-  "version": "1.0.0",
-  "description": "VRChatのワールドを公式と連携しながらお気に入り登録・管理できる拡張機能",
+  "version": "1.0.2",
+  "description": "VRChatのワールドを公式と連携しながらお気に入り登録・整理するためのファイルマネージャ",
   "permissions": [
     "storage",
     "tabs",
@@ -19,6 +19,7 @@
       "128": "icons/icon128.png"
     }
   },
+  "options_page": "options_page.html", 
   "content_scripts": [
     {
       "matches": [

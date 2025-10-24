@@ -2,7 +2,7 @@
 console.log('[WorldDataModel] Loaded');
 
 // ========================================
-// 内部ヘルパー
+// 内部ヘルパー（エクスポート用）
 // ========================================
 
 async function getAllWorldsInternal() {
@@ -25,12 +25,49 @@ async function getAllWorldsInternal() {
   return [...syncWorldsWithDetails, ...vrcWorlds];
 }
 
+/**
+ * 単一ワールドの詳細をVRChat APIから取得（background.js用）
+ */
+async function getSingleWorldDetailsInternal(worldId) {
+  try {
+    const response = await fetch(`${API_BASE}/worlds/${worldId}`, {
+      method: 'GET',
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return {
+          id: worldId,
+          name: '[Deleted]',
+          authorName: null,
+          releaseStatus: 'deleted',
+          thumbnailImageUrl: null
+        };
+      }
+      return null;
+    }
+
+    const data = await response.json();
+    return {
+      id: data.id,
+      name: data.name,
+      authorName: data.authorName,
+      releaseStatus: data.releaseStatus,
+      thumbnailImageUrl: data.thumbnailImageUrl
+    };
+  } catch (error) {
+    logError('GET_WORLD_DETAILS_INTERNAL', error, { worldId });
+    return null;
+  }
+}
+
 async function addWorldToFolder(world) {
   try {
     const folderId = world.folderId;
 
     if (folderId.startsWith('worlds')) {
-      // VRCフォルダへの追加 (変更なし)
+      // VRCフォルダへの追加
       if (world.releaseStatus === 'private' || world.releaseStatus === 'deleted') {
         return { success: false, reason: 'private_world', worldName: world.name };
       }
@@ -58,16 +95,16 @@ async function addWorldToFolder(world) {
       await chrome.storage.local.set({ vrcWorlds: vrcWorldsList });
 
     } else {
-      // カスタムフォルダへの追加 (バイト数チェック追加)
-      const sync = await chrome.storage.sync.get(['worlds', 'folders', 'vrcFolderData']);
-      const syncWorlds = sync.worlds || [];
+      // カスタムフォルダへの追加
+      const syncWorlds = await loadWorldsChunked();
 
       // 件数チェック
       if (syncWorlds.length >= SYNC_WORLD_LIMIT) {
         return { success: false, reason: 'sync_limit_exceeded' };
       }
 
-      // バイト数チェック (追加前に確認)
+      // バイト数チェック（追加前に確認）
+      const sync = await chrome.storage.sync.get(['folders', 'vrcFolderData']);
       const testData = {
         worlds: [...syncWorlds, { id: world.id, folderId: folderId }],
         folders: sync.folders || [],
@@ -92,7 +129,7 @@ async function addWorldToFolder(world) {
       }
 
       syncWorlds.push({ id: world.id, folderId: folderId });
-      await chrome.storage.sync.set({ worlds: syncWorlds });
+      await saveWorldsChunked(syncWorlds);
 
       // 詳細情報を保存
       await saveWorldDetails(world.id, {
@@ -530,7 +567,7 @@ async function processUnifiedBatch(batch) {
 
     // 変更があった場合のみ書き込み
     if (syncModified) {
-      await saveWorldsChunked(syncWorlds); // 分割保存
+      await saveWorldsChunked(syncWorlds);
     }
     if (vrcModified) {
       await chrome.storage.local.set({ vrcWorlds });

@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings - VRChat World Favorites Manager</title>
+  <style>
+    /* ==================== カラーパレット（CSS変数） ==================== */
+    :root {
+      /* ダークテーマ（デフォルト） */
+      --bg-primary: #0a0e1a;
+      --bg-secondary: #0f1419;
+      --bg-tertiary: #141920;
+      --bg-card: #1a1f2e;
+      --bg-hover: #141920;
+
+      --text-primary: #e0e0e0;
+      --text-secondary: #888;
+      --text-tertiary: #666;
+
+      --border-normal: #333;
+
+      --accent-primary: #1fd1ed;
+      --accent-dark: #0a0e1a;
+
+      --success: #4caf50;
+
+      --shadow-card: rgba(31, 209, 237, 0.2);
+      --shadow-box: rgba(0, 0, 0, 0.4);
+
+      /* ヘッダーグラデーション用（変数化が難しい部分） */
+      --header-bg-start: #1a1f2e;
+      --header-bg-end: #0f1419;
+    }
+
+    body.light-theme {
+      --bg-primary: #f4f6f5;
+      --bg-secondary: #fbfcfb;
+      --bg-tertiary: #fbfcfb;
+      --bg-card: #fff;
+      --bg-hover: #f5f9f6;
+
+      --text-primary: #3a4a3e;
+      --text-secondary: #899a8d;
+      --text-tertiary: #6b7d6f;
+
+      --border-normal: #dfe5e0;
+
+      --accent-primary: #7ba886;
+      --accent-dark: #fff;
+
+      --success: #6b9474;
+
+      --shadow-card: rgba(123, 168, 134, 0.15);
+      --shadow-box: rgba(0, 0, 0, 0.08);
+
+      --header-bg-start: #8ebfa7;
+      --header-bg-end: #7ba886;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 600px;
+      width: 100%;
+      background: var(--bg-card);
+      border: 2px solid var(--accent-primary);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 8px 32px var(--shadow-box);
+    }
+
+    .header {
+      /* CSS変数で定義したグラデーション色を使用 */
+      background: linear-gradient(135deg, var(--header-bg-start) 0%, var(--header-bg-end) 100%);
+      padding: 20px 24px;
+      border-bottom: 2px solid var(--accent-primary);
+    }
+
+    .header h1 {
+      font-size: 24px;
+      color: var(--accent-primary);
+      margin-bottom: 4px;
+    }
+
+    body.light-theme .header h1 {
+      color: var(--accent-dark);
+      /* ライトテーマのヘッダータイトルは白 */
+    }
+
+    .header p {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    body.light-theme .header p {
+      color: rgba(255, 255, 255, 0.8);
+    }
+
+    .content {
+      padding: 24px;
+    }
+
+    .section {
+      margin-bottom: 28px;
+    }
+
+    .section:last-child {
+      margin-bottom: 0;
+    }
+
+    .section-title {
+      font-size: 16px;
+      color: var(--accent-primary);
+      margin-bottom: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .setting-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 16px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-normal);
+      border-radius: 8px;
+      margin-bottom: 10px;
+      transition: all 0.2s;
+    }
+
+    .setting-item:hover {
+      border-color: var(--accent-primary);
+      background: var(--bg-hover);
+    }
+
+    .setting-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .setting-info {
+      flex: 1;
+    }
+
+    .setting-label {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .setting-description {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    /* トグルスイッチ */
+    .toggle-switch {
+      position: relative;
+      width: 50px;
+      height: 26px;
+      background: var(--border-normal);
+      border-radius: 13px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    .toggle-switch.active {
+      background: var(--accent-primary);
+    }
+
+    .toggle-slider {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 20px;
+      height: 20px;
+      background: var(--accent-dark);
+      border-radius: 50%;
+      transition: transform 0.3s;
+    }
+
+    body:not(.light-theme) .toggle-switch.active .toggle-slider {
+      background: #fff;
+      /* ダークテーマでアクティブな時は白 */
+    }
+
+    body.light-theme .toggle-switch {
+      background: #ccc;
+      /* ライトテーマのデフォルト色は固定で#cccに合わせる */
+    }
+
+    body.light-theme .toggle-switch.active .toggle-slider {
+      background: #fff;
+      /* ライトテーマでアクティブな時も白 */
+    }
+
+    .toggle-switch.active .toggle-slider {
+      transform: translateX(24px);
+    }
+
+    /* セレクトボックス */
+    select {
+      padding: 8px 12px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-normal);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 13px;
+      cursor: pointer;
+      min-width: 150px;
+      transition: all 0.2s;
+    }
+
+    select:hover {
+      border-color: var(--accent-primary);
+    }
+
+    select:focus {
+      outline: none;
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 2px var(--shadow-card);
+    }
+
+    /* フッター */
+    .footer {
+      padding: 20px 24px;
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border-normal);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .footer-info {
+      font-size: 12px;
+      color: var(--text-tertiary);
+    }
+
+    .btn {
+      padding: 8px 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--accent-primary);
+      border-radius: 6px;
+      color: var(--accent-primary);
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+
+    .btn:hover {
+      background: var(--accent-primary);
+      color: var(--accent-dark);
+    }
+
+    /* 通知 */
+    .notification {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 12px 20px;
+      background: var(--bg-card);
+      border: 2px solid var(--accent-primary);
+      border-radius: 8px;
+      color: var(--text-primary);
+      font-size: 13px;
+      box-shadow: 0 8px 32px var(--shadow-box);
+      transform: translateX(400px);
+      transition: transform 0.3s;
+      z-index: 1000;
+    }
+
+    .notification.show {
+      transform: translateX(0);
+    }
+
+    .notification.success {
+      border-color: var(--success);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 id="pageTitle">⚙️ 設定</h1>
+      <p id="pageDescription">VRChat World Favorites Manager の設定</p>
+    </div>
+
+    <div class="content">
+      <div class="section">
+        <div class="section-title" id="appearanceTitle">🎨 外観</div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="themeLabel">テーマ</div>
+            <div class="setting-description" id="themeDescription">表示テーマを選択</div>
+          </div>
+          <select id="themeSelect">
+            <option value="dark" id="themeDark">ダーク</option>
+            <option value="light" id="themeLight">ライト</option>
+          </select>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="languageLabel">言語 / Language</div>
+            <div class="setting-description" id="languageDescription">表示言語を選択</div>
+          </div>
+          <select id="languageSelect">
+            <option value="ja">日本語</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title" id="featuresTitle">⚡ 機能</div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="autoSyncLabel">自動同期</div>
+            <div class="setting-description" id="autoSyncDescription">起動時に自動的にVRChatと同期</div>
+          </div>
+          <div class="toggle-switch" id="autoSyncToggle">
+            <div class="toggle-slider"></div>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="notificationsLabel">通知</div>
+            <div class="setting-description" id="notificationsDescription">操作完了時に通知を表示</div>
+          </div>
+          <div class="toggle-switch active" id="notificationsToggle">
+            <div class="toggle-slider"></div>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="autoThumbnailLabel">サムネイル自動取得</div>
+            <div class="setting-description" id="autoThumbnailDescription">ワールド追加時に自動でサムネイルを取得</div>
+          </div>
+          <div class="toggle-switch active" id="autoThumbnailToggle">
+            <div class="toggle-slider"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title" id="dataTitle">💾 データ管理</div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="backupLabel">バックアップ</div>
+            <div class="setting-description" id="backupDescription">設定とデータをエクスポート</div>
+          </div>
+          <button class="btn" id="backupBtn">エクスポート</button>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="resetLabel">設定リセット</div>
+            <div class="setting-description" id="resetDescription">すべての設定を初期値に戻す</div>
+          </div>
+          <button class="btn" id="resetBtn">リセット</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div class="footer-info" id="footerInfo">Version 1.0.0</div>
+      <button class="btn" id="closeBtn">閉じる</button>
+    </div>
+  </div>
+
+  <div id="notification" class="notification"></div>
+
+  <script src="options_page.js"></script>
+</body>
+
+</html>
