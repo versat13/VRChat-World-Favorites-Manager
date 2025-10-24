@@ -2,8 +2,8 @@
     // この翻訳オブジェクトを別ファイル(i18n.js)に分離することも可能
     const translations = {
       ja: {
-        pageTitle: '⚙️ 設定',
-        pageDescription: 'VRChat World Favorites Manager の設定',
+        pageTitle: '⚙️ VRChat World Favorites Manager 設定',
+        pageDescription: '',
         appearanceTitle: '🎨 外観',
         themeLabel: 'テーマ',
         themeDescription: '表示テーマを選択',
@@ -21,7 +21,6 @@
         dataTitle: '💾 データ管理',
         backupLabel: 'バックアップ',
         backupDescription: '設定とデータをエクスポート',
-        backupBtn: 'エクスポート',
         resetLabel: '設定リセット',
         resetDescription: 'すべての設定を初期値に戻す',
         resetBtn: 'リセット',
@@ -33,8 +32,8 @@
         backupSuccess: 'バックアップをエクスポートしました'
       },
       en: {
-        pageTitle: '⚙️ Settings',
-        pageDescription: 'Settings for VRChat World Favorites Manager',
+        pageTitle: '⚙️ Settings for VRChat World Favorites Manager',
+        pageDescription: '',
         appearanceTitle: '🎨 Appearance',
         themeLabel: 'Theme',
         themeDescription: 'Select display theme',
@@ -52,7 +51,6 @@
         dataTitle: '💾 Data Management',
         backupLabel: 'Backup',
         backupDescription: 'Export settings and data',
-        backupBtn: 'Export',
         resetLabel: 'Reset Settings',
         resetDescription: 'Reset all settings to default',
         resetBtn: 'Reset',
@@ -184,26 +182,6 @@
         this.classList.toggle('active');
         currentSettings.autoThumbnail = this.classList.contains('active');
         saveSettings();
-      });
-
-      // バックアップボタン
-      document.getElementById('backupBtn').addEventListener('click', async () => {
-        try {
-          // chrome.storage.local.get(null)は、すべてのデータを取得します
-          const data = await chrome.storage.local.get(null);
-          const dataStr = JSON.stringify(data, null, 2);
-          const blob = new Blob([dataStr], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `vrchat-favorites-backup-${Date.now()}.json`;
-          a.click();
-          URL.revokeObjectURL(url);
-          showNotification(t('backupSuccess'), 'success');
-        } catch (error) {
-          console.error('Backup failed:', error);
-          // エクスポートに失敗した場合の通知を追加することが推奨されます
-        }
       });
 
       // リセットボタン

@@ -300,12 +300,15 @@
 
 <body>
   <div class="container">
+    <!-- ヘッダー -->
     <div class="header">
       <h1 id="pageTitle">⚙️ 設定</h1>
       <p id="pageDescription">VRChat World Favorites Manager の設定</p>
     </div>
 
+    <!-- コンテンツ -->
     <div class="content">
+      <!-- 外観設定 -->
       <div class="section">
         <div class="section-title" id="appearanceTitle">🎨 外観</div>
 
@@ -332,50 +335,64 @@
         </div>
       </div>
 
+      <!-- 機能設定 -->
       <div class="section">
         <div class="section-title" id="featuresTitle">⚡ 機能</div>
-
-        <div class="setting-item">
+        
+        <div class="setting-item" style="opacity: 0.6;">
           <div class="setting-info">
-            <div class="setting-label" id="autoSyncLabel">自動同期</div>
+            <div class="setting-label" id="autoSyncLabel">自動同期 <span style="font-size: 10px; color: var(--text-tertiary);">(追加予定)</span></div>
             <div class="setting-description" id="autoSyncDescription">起動時に自動的にVRChatと同期</div>
           </div>
-          <div class="toggle-switch" id="autoSyncToggle">
+          <div class="toggle-switch" id="autoSyncToggle" style="pointer-events: none; opacity: 0.5;">
             <div class="toggle-slider"></div>
           </div>
         </div>
 
         <div class="setting-item">
           <div class="setting-info">
-            <div class="setting-label" id="notificationsLabel">通知</div>
+            <div class="setting-label" id="vrcSiteMenuLabel">VRCサイト内メニュー追加</div>
+            <div class="setting-description" id="vrcSiteMenuDescription">公式サイトのワールドページに機能を追加</div>
+          </div>
+          <div class="toggle-switch active" id="vrcSiteMenuToggle">
+            <div class="toggle-slider"></div>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="contextMenuLabel">コンテキストメニュー</div>
+            <div class="setting-description" id="contextMenuDescription">右クリックメニューからURL追加</div>
+          </div>
+          <div class="toggle-switch active" id="contextMenuToggle">
+            <div class="toggle-slider"></div>
+          </div>
+        </div>
+
+        <div class="setting-item" style="opacity: 0.6;">
+          <div class="setting-info">
+            <div class="setting-label" id="notificationsLabel">通知 <span style="font-size: 10px; color: var(--text-tertiary);">(追加予定)</span></div>
             <div class="setting-description" id="notificationsDescription">操作完了時に通知を表示</div>
           </div>
-          <div class="toggle-switch active" id="notificationsToggle">
+          <div class="toggle-switch" id="notificationsToggle" style="pointer-events: none; opacity: 0.5;">
             <div class="toggle-slider"></div>
           </div>
         </div>
 
-        <div class="setting-item">
+        <div class="setting-item" style="opacity: 0.6;">
           <div class="setting-info">
-            <div class="setting-label" id="autoThumbnailLabel">サムネイル自動取得</div>
+            <div class="setting-label" id="autoThumbnailLabel">サムネイル自動取得 <span style="font-size: 10px; color: var(--text-tertiary);">(追加予定)</span></div>
             <div class="setting-description" id="autoThumbnailDescription">ワールド追加時に自動でサムネイルを取得</div>
           </div>
-          <div class="toggle-switch active" id="autoThumbnailToggle">
+          <div class="toggle-switch" id="autoThumbnailToggle" style="pointer-events: none; opacity: 0.5;">
             <div class="toggle-slider"></div>
           </div>
         </div>
       </div>
-
+      
+      <!-- データ管理 -->
       <div class="section">
         <div class="section-title" id="dataTitle">💾 データ管理</div>
-
-        <div class="setting-item">
-          <div class="setting-info">
-            <div class="setting-label" id="backupLabel">バックアップ</div>
-            <div class="setting-description" id="backupDescription">設定とデータをエクスポート</div>
-          </div>
-          <button class="btn" id="backupBtn">エクスポート</button>
-        </div>
 
         <div class="setting-item">
           <div class="setting-info">
@@ -387,14 +404,16 @@
       </div>
     </div>
 
+    <!-- フッター -->
     <div class="footer">
-      <div class="footer-info" id="footerInfo">Version 1.0.0</div>
+      <div class="footer-info" id="footerInfo">Version 1.0.2</div>
       <button class="btn" id="closeBtn">閉じる</button>
     </div>
   </div>
 
+  <!-- 通知 -->
   <div id="notification" class="notification"></div>
-
+  
   <script src="options_page.js"></script>
 </body>
 
