@@ -12,7 +12,7 @@ VRChatのプライベートワールドをブラウザ上でお気に入り登�
 - 🎨 **モダンなUI**: 使いやすく美しいインターフェース
 
 
-α版だけどとりあえずウェブストアで公開  
+ウェブストアで公開  
 https://chromewebstore.google.com/detail/vrchat-favorite-worlds-ma/dilmkhbdfgobkiemjhldemmbceoagoni?authuser=0&hl=ja
 
 
