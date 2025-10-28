@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VRChat公式連携ブリッジ</title>
+    <style>
+        /* ==================== カラーパレット(CSS変数 - popup.htmlと共通) ==================== */
+        :root {
+            /* ダークテーマ(デフォルト) */
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #0f1419;
+            --bg-tertiary: #141920;
+            --bg-card: #1a1f2e;
+            --bg-hover: #222;
+
+            --text-primary: #e0e0e0;
+            --text-secondary: #888;
+            --text-tertiary: #666;
+
+            --border-normal: #333;
+            --border-light: #222;
+
+            --accent-primary: #1fd1ed;
+            --accent-hover: #17b8cc;
+            --accent-dark: #0a0e1a;
+
+            --success: #4caf50;
+            --warning: #ffa726;
+            --warning-dark: #f59e0b;
+            --warning-text: #78350f;
+            --warning-border: #d97706;
+            --error: #ff5757;
+            --error-dark: #c53030;
+            
+            /* 🔥 新しい上書きボタンの色 (淡い赤) */
+            --reflect-primary: #e67c7c; 
+            --reflect-hover: #e06565;
+            --reflect-text: #0a0e1a; /* ダークテーマでは濃い文字色 */
+
+            --shadow-card: rgba(31, 209, 237, 0.2);
+            --shadow-box: rgba(0, 0, 0, 0.5);
+
+            --scrollbar-track: #0f1419;
+            --scrollbar-thumb: #333;
+        }
+
+        body.light-theme {
+            /* ライトテーマ */
+            --bg-primary: #f4f6f5;
+            --bg-secondary: #fbfcfb;
+            --bg-tertiary: #fbfcfb;
+            --bg-card: #fff;
+            --bg-hover: #f5f9f6;
+
+            --text-primary: #3a4a3e;
+            --text-secondary: #899a8d;
+            --text-tertiary: #6b7d6f;
+
+            --border-normal: #dfe5e0;
+            --border-light: #edf1ee;
+
+            --accent-primary: #7ba886;
+            --accent-hover: #6b9474;
+            --accent-dark: #fff;
+
+            --success: #6b9474;
+            --warning: #d4a574;
+            --warning-dark: #c49564;
+            --warning-text: #8b6f47;
+            --warning-border: #d4a574;
+            --error: #d47b7b;
+            --error-dark: #c46b6b;
+            
+            /* 🔥 新しい上書きボタンの色 (淡い赤) */
+            --reflect-primary: #f2c7c7; 
+            --reflect-hover: #f0b8b8;
+            --reflect-text: #3a4a3e; /* ライトテーマでは濃い文字色 */
+
+            --shadow-card: rgba(123, 168, 134, 0.15);
+            --shadow-box: rgba(0, 0, 0, 0.08);
+
+            --scrollbar-track: #f8f9f8;
+            --scrollbar-thumb: #d5dbd6;
+        }
+
+        /* ==================== 基本スタイル ==================== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            flex-direction: column;
+            transition: background 0.3s, color 0.3s;
+        }
+
+        /* コンテナ */
+        .bridge-container {
+            width: 90%;
+            max-width: 450px;
+            padding: 20px;
+            background-color: var(--bg-card);
+            border-radius: 12px;
+            box-shadow: 0 4px 20px var(--shadow-box);
+            text-align: center;
+            border: 2px solid var(--accent-primary);
+        }
+
+        /* ヘッダー */
+        h1 {
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+            color: var(--accent-primary);
+        }
+
+        .bridge-description {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 20px; /* ボタンの上に間隔を空ける */
+            line-height: 1.5;
+        }
+
+        /* アラートメッセージ (処理中の注意喚起) */
+        #alert-message {
+            display: none;
+            background: linear-gradient(135deg, #fbbf24 0%, var(--warning-dark) 100%);
+            color: var(--warning-text);
+            border: 1px solid var(--warning-border);
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 16px; /* 進捗バーの下に間隔を空ける */
+            font-size: 0.9rem;
+            font-weight: 600;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        body.light-theme #alert-message {
+            background: linear-gradient(135deg, #f9eed9 0%, #ead5ac 100%);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+
+        /* ボタン群 */
+        .action-buttons {
+            display: flex;
+            gap: 12px;
+            margin: 0 0 20px 0; /* ステータスエリアの上に間隔を空ける */
+            justify-content: center;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px 20px;
+            border: 2px solid var(--border-normal);
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            background: var(--bg-card);
+            color: var(--text-primary);
+        }
+        
+        .btn:hover:not(:disabled) {
+            background: var(--bg-hover);
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #fetch-button {
+            background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-hover) 100%);
+            color: var(--accent-dark);
+            border-color: var(--accent-primary);
+        }
+
+        #fetch-button:hover:not(:disabled) {
+            background: linear-gradient(135deg, var(--accent-hover) 0%, var(--accent-primary) 100%);
+            color: var(--accent-dark);
+            box-shadow: 0 4px 12px var(--shadow-card);
+        }
+        
+        /* 🔥 「VRChatへ上書き」ボタンのスタイル定義 */
+        #reflect-button {
+            background: linear-gradient(135deg, var(--reflect-primary) 0%, var(--reflect-hover) 100%);
+            color: var(--reflect-text);
+            border-color: var(--reflect-primary);
+        }
+        
+        #reflect-button:hover:not(:disabled) {
+            background: linear-gradient(135deg, var(--reflect-hover) 0%, var(--reflect-primary) 100%);
+            color: var(--reflect-text);
+            border-color: var(--reflect-primary);
+            box-shadow: 0 4px 12px rgba(230, 124, 124, 0.2);
+        }
+
+        /* ステータスとプログレスバー */
+        .status-area {
+            /* 並び順変更のため、margin-topを調整 */
+            margin-top: 0;
+            text-align: left;
+        }
+
+        #status-message {
+            font-weight: bold;
+            margin-bottom: 8px;
+            min-height: 1.2em;
+            font-size: 0.95rem;
+            color: var(--text-primary);
+        }
+
+        #error-message {
+            color: var(--error);
+            font-size: 0.85rem;
+            margin-top: 8px;
+            min-height: 1.1em;
+            display: none;
+            line-height: 1.4;
+        }
+
+        .progress-bar {
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-normal);
+            border-radius: 8px;
+            height: 32px;
+            margin-top: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #progress-fill {
+            background: linear-gradient(90deg, var(--accent-primary) 0%, var(--accent-hover) 100%);
+            height: 100%;
+            width: 0%;
+            transition: width 0.4s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent-dark);
+            font-weight: bold;
+            font-size: 0.9rem;
+            position: relative;
+        }
+        
+        #progress-fill.complete {
+            background: linear-gradient(90deg, var(--success) 0%, #45a049 100%);
+        }
+
+        #progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(
+                90deg,
+                transparent 0%,
+                rgba(255, 255, 255, 0.3) 50%,
+                transparent 100%
+            );
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        /* スクロールバー */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--scrollbar-track);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--scrollbar-thumb);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent-primary);
+        }
+
+    </style>
+</head>
+<body>
+    <div class="bridge-container">
+        <h1 id="bridgeHeader">🔄 VRChat公式同期メニュー</h1>
+        <p class="bridge-description" id="bridgeDescription">
+            最初の同期には数分間ほど時間がかかります。
+        </p>
+
+        <div class="action-buttons">
+            <button id="fetch-button" class="btn">
+                <span id="fetchButtonText">VRChatからデータ取得</span>
+            </button>
+            <button id="reflect-button" class="btn">
+                ⚠️ <span id="reflectButtonText">VRChatへ上書き</span>
+            </button>
+        </div>
+
+        <div class="status-area">
+            <div id="status-message">
+                <span id="statusWaiting">実行待ち...</span>
+            </div>
+            
+            <div class="progress-bar">
+                <div id="progress-fill">0%</div>
+            </div>
+            
+            <div id="error-message"></div>
+        </div>
+        
+        <div id="alert-message">
+            <span id="alertWarningText">⚠️ 処理中です。このウィンドウを閉じないでください。</span>
+        </div>
+        
+    </div>
+
+    <script src="popup2_vrc_bridge.js"></script>
+</body>
+</html>

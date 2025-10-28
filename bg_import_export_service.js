@@ -16,33 +16,131 @@ async function batchImportWorlds(request, sendResponse) {
   let isFailure = false;
 
   try {
-    // 1. フルバックアップ時のストレージクリア
+    // 🔥 1. 完全バックアップ時の事前検証
     if (isFullBackup) {
-      logAction('FULL_BACKUP_CLEAR_STORAGE', 'Starting full overwrite');
-
-      const allLocalKeys = await chrome.storage.local.get(null);
-      const keysToRemoveLocal = Object.keys(allLocalKeys).filter(key => 
-        key.startsWith('worldDetails_') || key === 'vrcWorlds'
-      );
-      if (keysToRemoveLocal.length > 0) {
-        await chrome.storage.local.remove(keysToRemoveLocal);
+      logAction('FULL_BACKUP_VALIDATION_START', 'Validating backup data');
+      
+      // データ検証
+      if (!importWorlds || !Array.isArray(importWorlds)) {
+        throw new Error('Invalid backup: worlds must be an array');
       }
       
-      await chrome.storage.sync.remove(['worlds', 'folders', 'vrcFolderData']);
-
-      if (request.folders) {
-        await chrome.storage.sync.set({ folders: request.folders });
+      if (importWorlds.length === 0) {
+        throw new Error('Invalid backup: worlds array is empty');
       }
-      if (request.vrcFolderData) {
-        await chrome.storage.sync.set({ vrcFolderData: request.vrcFolderData });
+      
+      // 各ワールドの必須フィールドをチェック
+      const invalidWorlds = importWorlds.filter(w => !w.id || !w.folderId);
+      if (invalidWorlds.length > 0) {
+        throw new Error(`Invalid backup: ${invalidWorlds.length} worlds missing required fields (id or folderId)`);
+      }
+      
+      // フォルダデータの検証
+      if (request.folders !== undefined && !Array.isArray(request.folders)) {
+        throw new Error('Invalid backup: folders must be an array');
+      }
+      
+      if (request.vrcFolderData !== undefined && typeof request.vrcFolderData !== 'object') {
+        throw new Error('Invalid backup: vrcFolderData must be an object');
+      }
+      
+      logAction('FULL_BACKUP_VALIDATION_SUCCESS', 'Backup data is valid');
+      
+      // 🔥 2. 既存データのバックアップ作成（ロールバック用）
+      logAction('FULL_BACKUP_CREATE_ROLLBACK', 'Creating rollback backup');
+      
+      const rollbackData = {
+        syncWorlds: await loadWorldsChunked(),
+        sync: await chrome.storage.sync.get(['folders', 'vrcFolderData']),
+        local: await chrome.storage.local.get(['vrcWorlds'])
+      };
+      
+      // worldDetailsもバックアップ
+      const allLocalKeys = await chrome.storage.local.get(null);
+      rollbackData.worldDetails = {};
+      Object.keys(allLocalKeys).forEach(key => {
+        if (key.startsWith('worldDetails_')) {
+          rollbackData.worldDetails[key] = allLocalKeys[key];
+        }
+      });
+      
+      logAction('FULL_BACKUP_ROLLBACK_CREATED', { 
+        syncWorldsCount: rollbackData.syncWorlds.length,
+        vrcWorldsCount: (rollbackData.local.vrcWorlds || []).length
+      });
+      
+      // 🔥 3. ストレージクリア
+      try {
+        logAction('FULL_BACKUP_CLEAR_STORAGE', 'Starting full overwrite');
+
+        // Local Storage のクリア
+        const keysToRemoveLocal = Object.keys(allLocalKeys).filter(key => 
+          key.startsWith('worldDetails_') || key === 'vrcWorlds'
+        );
+        if (keysToRemoveLocal.length > 0) {
+          await chrome.storage.local.remove(keysToRemoveLocal);
+        }
+        
+        // Sync Storage のクリア
+        await chrome.storage.sync.remove(['folders', 'vrcFolderData']);
+        
+        // 全てのチャンクをクリア
+        const syncKeys = await chrome.storage.sync.get(null);
+        const chunksToRemove = Object.keys(syncKeys).filter(key => key.startsWith('worlds_'));
+        if (chunksToRemove.length > 0) {
+          await chrome.storage.sync.remove(chunksToRemove);
+        }
+
+        logAction('FULL_BACKUP_STORAGE_CLEARED', 'All storage cleared');
+        
+      } catch (clearError) {
+        // クリア失敗時はロールバック
+        logError('FULL_BACKUP_CLEAR_FAILED', clearError);
+        throw new Error('Failed to clear storage: ' + clearError.message);
+      }
+      
+      // 🔥 4. 新データのインポート（try-catchでロールバック可能に）
+      try {
+        // フォルダ・VRCフォルダデータを復元
+        if (request.folders) {
+          await chrome.storage.sync.set({ folders: request.folders });
+        }
+        if (request.vrcFolderData) {
+          await chrome.storage.sync.set({ vrcFolderData: request.vrcFolderData });
+        }
+        
+        logAction('FULL_BACKUP_METADATA_RESTORED', 'Folders and VRC data restored');
+        
+      } catch (restoreError) {
+        // メタデータ復元失敗時はロールバック
+        logError('FULL_BACKUP_METADATA_RESTORE_FAILED', restoreError);
+        
+        // ロールバック実行
+        logAction('FULL_BACKUP_ROLLBACK_START', 'Rolling back to previous state');
+        await saveWorldsChunked(rollbackData.syncWorlds);
+        await chrome.storage.sync.set(rollbackData.sync);
+        await chrome.storage.local.set(rollbackData.local);
+        
+        // worldDetailsも復元
+        for (const [key, value] of Object.entries(rollbackData.worldDetails)) {
+          await chrome.storage.local.set({ [key]: value });
+        }
+        
+        logAction('FULL_BACKUP_ROLLBACK_COMPLETE', 'Rollback completed');
+        throw new Error('Failed to restore metadata, rolled back: ' + restoreError.message);
       }
     }
 
-    // 2. 既存ワールドマップ作成
-    const allExistingWorlds = isFullBackup ? [] : await getAllWorldsInternal();
+    // 🔥 5. 既存ワールドマップ作成（完全バックアップ時はクリア後なので空）
+    const allExistingWorlds = await getAllWorldsInternal();
     const existingWorldMap = new Map(allExistingWorlds.map(w => [w.id, w]));
     
-    // 3. インポート対象を分類
+    logAction('EXISTING_WORLDS_LOADED', { 
+      count: allExistingWorlds.length,
+      isFullBackup 
+    });
+    
+    // 6. インポート対象を分類
     const worldsToAddCustom = [];
     const worldsToAddVRC = [];
     const worldsToMove = [];
@@ -52,14 +150,52 @@ async function batchImportWorlds(request, sendResponse) {
       const folderId = isFullBackup ? (world.folderId || 'none') : (targetFolder || 'none');
       const existing = existingWorldMap.get(world.id);
       
+      // 完全バックアップ時は既存チェックをスキップ（クリア済みのため）
+      if (isFullBackup) {
+        // 既存データなし → すべて新規追加
+        const worldToAdd = {
+          id: world.id,
+          name: world.name || world.id,
+          authorName: world.authorName || null,
+          releaseStatus: world.releaseStatus || null,
+          thumbnailImageUrl: world.thumbnailImageUrl || null,
+          folderId: folderId,
+          favoriteRecordId: world.favoriteRecordId || null
+        };
+        
+        // Private/Deletedチェック
+        if (folderId.startsWith('worlds') && 
+            (world.releaseStatus === 'private' || world.releaseStatus === 'deleted')) {
+          skippedCount++;
+          errors.push({ id: world.id, reason: 'private_world', details: world.name });
+          continue;
+        }
+        
+        // VRCフォルダとカスタムフォルダで分類
+        if (folderId.startsWith('worlds')) {
+          worldsToAddVRC.push(worldToAdd);
+        } else {
+          worldsToAddCustom.push(worldToAdd);
+          detailsToSaveCustom[world.id] = {
+            name: worldToAdd.name,
+            authorName: worldToAdd.authorName,
+            releaseStatus: worldToAdd.releaseStatus,
+            thumbnailImageUrl: worldToAdd.thumbnailImageUrl
+          };
+        }
+        continue;
+      }
+      
+      // 部分インポート時のみ既存チェック
+      
       // 既存で同じフォルダならスキップ
-      if (existing && existing.folderId === folderId && !isFullBackup) {
+      if (existing && existing.folderId === folderId) {
         skippedCount++;
         continue;
       }
       
       // 既存で別フォルダなら移動
-      if (existing && existing.folderId !== folderId && !isFullBackup) {
+      if (existing && existing.folderId !== folderId) {
         worldsToMove.push({
           worldId: world.id,
           fromFolder: existing.folderId,
@@ -109,7 +245,7 @@ async function batchImportWorlds(request, sendResponse) {
       skipped: skippedCount
     });
     
-    // 4. 移動処理（既存のバッチ処理を利用）
+    // 7. 移動処理（既存のバッチ処理を流用）
     if (worldsToMove.length > 0) {
       const moveResult = await new Promise((resolve) => {
         batchUpdateWorlds({ movedWorlds: worldsToMove, deletedWorlds: [] }, resolve);
@@ -117,9 +253,9 @@ async function batchImportWorlds(request, sendResponse) {
       movedCount = moveResult.movedCount || 0;
     }
     
-    // 5. カスタムフォルダへの一括追加
+    // 8. カスタムフォルダへの一括追加
     if (worldsToAddCustom.length > 0) {
-      const syncWorlds = await loadWorldsChunked(); // 分割保存から読み込み
+      const syncWorlds = await loadWorldsChunked();
       
       // 容量チェック
       const newWorlds = worldsToAddCustom.map(w => ({ id: w.id, folderId: w.folderId }));
@@ -137,18 +273,18 @@ async function batchImportWorlds(request, sendResponse) {
         worldsToAddCustom.splice(remaining);
       }
       
-      // 一括書き込み（分割保存使用）
+      // 一括書き込み
       syncWorlds.push(...newWorlds);
-      await saveWorldsChunked(syncWorlds); // 自動的にチャンク分割される
+      await saveWorldsChunked(syncWorlds);
       addedCount += newWorlds.length;
       
-      // 詳細情報を一括保存（チャンクごとに1回）
+      // 詳細情報を一括保存
       await saveWorldDetailsBatch(detailsToSaveCustom);
       
       logAction('IMPORT_CUSTOM_COMPLETE', { count: newWorlds.length });
     }
     
-    // 6. VRCフォルダへの一括追加
+    // 9. VRCフォルダへの一括追加
     if (worldsToAddVRC.length > 0) {
       const local = await chrome.storage.local.get(['vrcWorlds']);
       const vrcWorlds = local.vrcWorlds || [];
@@ -173,7 +309,7 @@ async function batchImportWorlds(request, sendResponse) {
         folderCounts[world.folderId] = count + 1;
       }
       
-      // 一括書き込み（1回）
+      // 一括書き込み
       vrcWorlds.push(...validWorlds);
       await chrome.storage.local.set({ vrcWorlds });
       addedCount += validWorlds.length;
@@ -206,7 +342,6 @@ async function batchImportWorlds(request, sendResponse) {
     });
   }
 }
-
 
 // ========================================
 // エクスポート
@@ -249,7 +384,7 @@ async function getAllWorldDetailsForExport(sendResponse) {
     // 4. 完全なバックアップデータを作成
     const exportData = {
       meta: {
-        version: '8.3',
+        version: '1.1.0',
         type: 'FULL_BACKUP',
         timestamp: new Date().toISOString()
       },

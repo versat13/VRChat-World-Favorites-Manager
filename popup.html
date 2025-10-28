@@ -436,6 +436,13 @@
       border-color: var(--text-secondary);
     }
 
+    .folder-tab.add-folder.active {
+      background: var(--accent-primary);
+      color: var(--accent-dark);
+      border-color: var(--accent-dark);
+    }
+
+
     .folder-tab.drop-target {
       background: var(--accent-primary);
       color: var(--accent-dark);
@@ -1388,7 +1395,7 @@
             <span class="selection-count" id="selectionCount">選択中: 0個</span>
             <button id="updateSelectedBtn">🖼️ <span id="updateSelectedText">再取得</span></button>
             <button id="moveSelectedBtn">➡️ <span id="moveSelectedText">移動</span></button>
-            <button id="deleteSelectedBtn" class="danger">🗑️</button>
+            <button id="deleteSelectedBtn" class="danger">🗑️ <span id="deleteSelectedText">削除</span></button>
           </div>
 
           <div class="pagination-controls" style="justify-content: flex-end;">
@@ -1472,10 +1479,6 @@
             <div class="import-export-option-title">CSV形式</div>
             <div class="import-export-option-desc">VRCX等(WorldID, World Name)/ワールド情報のみ</div>
           </div>
-          <div class="import-export-option" data-type="vrchat">
-            <div class="import-export-option-title">VRChat公式と連携</div>
-            <div class="import-export-option-desc">お気に入りワールド一覧を取得(インポート)/反映(エクスポート)</div>
-          </div>
         </div>
       </div>
       <div class="modal-actions">
@@ -1504,7 +1507,10 @@
   <!-- 隠しファイル入力 -->
   <input type="file" id="importFile" accept=".json,.csv,.txt">
 
-  <script src="popup.js"></script>
+  <script src="popup_core.js"></script>
+  <script src="popup_main.js"></script>
+  <script src="popup_actions.js"></script>
+
 </body>
 
 </html>

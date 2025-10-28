@@ -1,219 +1,241 @@
-    // ==================== 翻訳データ ====================
-    // この翻訳オブジェクトを別ファイル(i18n.js)に分離することも可能
-    const translations = {
-      ja: {
-        pageTitle: '⚙️ VRChat World Favorites Manager 設定',
-        pageDescription: '',
-        appearanceTitle: '🎨 外観',
-        themeLabel: 'テーマ',
-        themeDescription: '表示テーマを選択',
-        themeDark: 'ダーク',
-        themeLight: 'ライト',
-        languageLabel: '言語 / Language',
-        languageDescription: '表示言語を選択',
-        featuresTitle: '⚡ 機能',
-        autoSyncLabel: '自動同期',
-        autoSyncDescription: '起動時に自動的にVRChatと同期',
-        notificationsLabel: '通知',
-        notificationsDescription: '操作完了時に通知を表示',
-        autoThumbnailLabel: 'サムネイル自動取得',
-        autoThumbnailDescription: 'ワールド追加時に自動でサムネイルを取得',
-        dataTitle: '💾 データ管理',
-        backupLabel: 'バックアップ',
-        backupDescription: '設定とデータをエクスポート',
-        resetLabel: '設定リセット',
-        resetDescription: 'すべての設定を初期値に戻す',
-        resetBtn: 'リセット',
-        footerInfo: 'Version 1.0.0',
-        closeBtn: '閉じる',
-        saveSuccess: '設定を保存しました',
-        resetConfirm: '本当にすべての設定をリセットしますか？',
-        resetSuccess: '設定をリセットしました',
-        backupSuccess: 'バックアップをエクスポートしました'
-      },
-      en: {
-        pageTitle: '⚙️ Settings for VRChat World Favorites Manager',
-        pageDescription: '',
-        appearanceTitle: '🎨 Appearance',
-        themeLabel: 'Theme',
-        themeDescription: 'Select display theme',
-        themeDark: 'Dark',
-        themeLight: 'Light',
-        languageLabel: 'Language / 言語',
-        languageDescription: 'Select display language',
-        featuresTitle: '⚡ Features',
-        autoSyncLabel: 'Auto Sync',
-        autoSyncDescription: 'Automatically sync with VRChat on startup',
-        notificationsLabel: 'Notifications',
-        notificationsDescription: 'Show notifications on operation completion',
-        autoThumbnailLabel: 'Auto Fetch Thumbnails',
-        autoThumbnailDescription: 'Automatically fetch thumbnails when adding worlds',
-        dataTitle: '💾 Data Management',
-        backupLabel: 'Backup',
-        backupDescription: 'Export settings and data',
-        resetLabel: 'Reset Settings',
-        resetDescription: 'Reset all settings to default',
-        resetBtn: 'Reset',
-        footerInfo: 'Version 1.0.0',
-        closeBtn: 'Close',
-        saveSuccess: 'Settings saved successfully',
-        resetConfirm: 'Are you sure you want to reset all settings?',
-        resetSuccess: 'Settings reset successfully',
-        backupSuccess: 'Backup exported successfully'
+// ==================== 翻訳データ ====================
+const translations = {
+  ja: {
+    pageTitle: '⚙️ 設定',
+    pageDescription: 'VRChat World Favorites Manager の設定',
+    appearanceTitle: '🎨 外観',
+    themeLabel: 'テーマ',
+    themeDescription: '表示テーマを選択',
+    themeDark: 'ダーク',
+    themeLight: 'ライト',
+    languageLabel: '言語 / Language',
+    languageDescription: '表示言語を選択',
+    featuresTitle: '⚡ 機能',
+    vrcSiteIntegrationLabel: 'VRChat公式サイト内にボタン追加',
+    vrcSiteIntegrationDescription: 'お気に入りワールド一覧ページやユーザーページで削除ボタンなどを追加する\n※設定変更後、VRChatのページをリロードしてください',
+    contextMenuLabel: 'コンテキストメニュー',
+    contextMenuDescription: '右クリックメニューからURL追加',
+    dataTitle: '💾 データ管理',
+    resetLabel: '設定リセット',
+    resetDescription: 'オプション内の設定をデフォルトに戻す',
+    resetBtn: '実行',
+    resetDataLabel: '保存データを全削除',
+    resetDataDescription: '保存されているすべてのワールドおよびフォルダを削除する',
+    resetDataBtn: '全削除',
+    footerInfo: 'Version 1.1.0',
+    saveSuccess: '設定を保存しました',
+    resetConfirm: '本当にすべての設定をリセットしますか？',
+    resetSuccess: '設定をリセットしました',
+    resetDataConfirm: '本当にすべてのワールドとフォルダのデータをリセットしますか？この操作は元に戻せません。（設定は残ります）',
+    resetDataSuccess: 'すべてのデータをリセットしました'
+  },
+  en: {
+    pageTitle: '⚙️ Settings',
+    pageDescription: 'Settings for VRChat World Favorites Manager',
+    appearanceTitle: '🎨 Appearance',
+    themeLabel: 'Theme',
+    themeDescription: 'Select display theme',
+    themeDark: 'Dark',
+    themeLight: 'Light',
+    languageLabel: 'Language / 言語',
+    languageDescription: 'Select display language',
+    featuresTitle: '⚡ Features',
+    vrcSiteIntegrationLabel: 'Add Buttons to VRChat Site',
+    vrcSiteIntegrationDescription: 'Add delete buttons and more on favorite worlds and user pages\n※Please reload VRChat pages after changing this setting',
+    contextMenuLabel: 'Context Menu',
+    contextMenuDescription: 'Add URL from right-click menu',
+    dataTitle: '💾 Data Management',
+    resetLabel: 'Reset Settings',
+    resetDescription: 'Reset options to default values',
+    resetBtn: 'Execute',
+    resetDataLabel: 'Delete All Saved Data',
+    resetDataDescription: 'Delete all saved worlds and folders',
+    resetDataBtn: 'Delete All',
+    footerInfo: 'Version 1.1.0',
+    saveSuccess: 'Settings saved successfully',
+    resetConfirm: 'Are you sure you want to reset all settings?',
+    resetSuccess: 'Settings reset successfully',
+    resetDataConfirm: 'Are you sure you want to reset all world and folder data? This cannot be undone. (Settings will be kept)',
+    resetDataSuccess: 'All data has been reset'
+  }
+};
+
+// ==================== 設定管理 ====================
+const DEFAULT_SETTINGS = {
+  theme: 'dark',
+  language: 'ja',
+  enableVrcSiteIntegration: true,
+  enableContextMenu: true
+};
+
+let currentSettings = { ...DEFAULT_SETTINGS };
+let currentLang = 'ja';
+
+// ==================== 初期化 ====================
+async function init() {
+  await loadSettings();
+  applyTheme();
+  applyLanguage();
+  setupEventListeners();
+}
+
+// 設定の読み込み
+async function loadSettings() {
+  try {
+    const result = await chrome.storage.sync.get('settings');
+    if (result.settings) {
+      currentSettings = { ...DEFAULT_SETTINGS, ...result.settings };
+    }
+    currentLang = currentSettings.language;
+    
+    // UIに反映
+    document.getElementById('themeSelect').value = currentSettings.theme;
+    document.getElementById('languageSelect').value = currentSettings.language;
+    
+    // トグルスイッチの状態を反映
+    const vrcToggle = document.getElementById('vrcSiteIntegrationToggle');
+    const contextToggle = document.getElementById('contextMenuToggle');
+    
+    if (currentSettings.enableVrcSiteIntegration !== false) {
+      vrcToggle.classList.add('active');
+    } else {
+      vrcToggle.classList.remove('active');
+    }
+    
+    if (currentSettings.enableContextMenu !== false) {
+      contextToggle.classList.add('active');
+    } else {
+      contextToggle.classList.remove('active');
+    }
+  } catch (error) {
+    console.error('Failed to load settings:', error);
+  }
+}
+
+// 設定の保存
+async function saveSettings() {
+  try {
+    await chrome.storage.sync.set({ settings: currentSettings });
+    showNotification(t('saveSuccess'), 'success');
+    
+    // コンテキストメニューの更新をbackgroundに依頼
+    chrome.runtime.sendMessage({ type: 'updateContextMenus' }).catch(e => {
+      console.warn('Failed to send updateContextMenus message:', e.message);
+    });
+  } catch (error) {
+    console.error('Failed to save settings:', error);
+    showNotification('設定の保存に失敗しました', 'error');
+  }
+}
+
+// ==================== テーマ適用 ====================
+function applyTheme() {
+  if (currentSettings.theme === 'light') {
+    document.body.classList.add('light-theme');
+  } else {
+    document.body.classList.remove('light-theme');
+  }
+}
+
+// ==================== 言語適用 ====================
+function applyLanguage() {
+  // 全ての翻訳対象要素を更新
+  Object.keys(translations[currentLang]).forEach(key => {
+    const element = document.getElementById(key);
+    if (element) {
+      // セレクトのオプションは特別処理
+      if (element.tagName === 'OPTION') {
+        element.textContent = translations[currentLang][key];
+      } else {
+        element.textContent = translations[currentLang][key];
       }
-    };
+    }
+  });
+  
+  // HTML言語属性も更新
+  document.documentElement.lang = currentLang;
+}
 
-    // ==================== 設定管理 ====================
-    const DEFAULT_SETTINGS = {
-      theme: 'dark',
-      language: 'ja',
-      autoSync: false,
-      notifications: true,
-      autoThumbnail: true
-    };
+// 翻訳関数（動的なメッセージ用）
+function t(key) {
+  return translations[currentLang][key] || key;
+}
 
-    let currentSettings = { ...DEFAULT_SETTINGS };
-    let currentLang = 'ja';
+// ==================== イベントリスナー ====================
+function setupEventListeners() {
+  // テーマ変更
+  document.getElementById('themeSelect').addEventListener('change', (e) => {
+    currentSettings.theme = e.target.value;
+    applyTheme();
+    saveSettings();
+  });
 
-    // ==================== 初期化 ====================
-    async function init() {
-      await loadSettings();
+  // 言語変更
+  document.getElementById('languageSelect').addEventListener('change', (e) => {
+    currentSettings.language = e.target.value;
+    currentLang = e.target.value;
+    applyLanguage();
+    saveSettings();
+  });
+
+  // VRCサイト連携トグル
+  document.getElementById('vrcSiteIntegrationToggle').addEventListener('click', function() {
+    this.classList.toggle('active');
+    currentSettings.enableVrcSiteIntegration = this.classList.contains('active');
+    saveSettings();
+  });
+
+  // コンテキストメニュートグル
+  document.getElementById('contextMenuToggle').addEventListener('click', function() {
+    this.classList.toggle('active');
+    currentSettings.enableContextMenu = this.classList.contains('active');
+    saveSettings();
+  });
+
+  // 設定リセットボタン
+  document.getElementById('resetBtn').addEventListener('click', async () => {
+    if (confirm(t('resetConfirm'))) {
+      currentSettings = { ...DEFAULT_SETTINGS };
+      await chrome.storage.sync.set({ settings: currentSettings });
+      await loadSettings(); // UI再読み込み
       applyTheme();
       applyLanguage();
-      setupEventListeners();
+      // コンテキストメニューも更新
+      chrome.runtime.sendMessage({ type: 'updateContextMenus' }).catch(e => console.warn(e.message));
+      showNotification(t('resetSuccess'), 'success');
     }
-
-    // 設定の読み込み
-    async function loadSettings() {
+  });
+  
+  // データリセットボタン
+  document.getElementById('resetDataBtn').addEventListener('click', async () => {
+    if (confirm(t('resetDataConfirm'))) {
       try {
-        // chrome.storage.syncはブラウザ拡張機能のAPIです。
-        // 環境がない場合はエラーになる可能性がありますが、ここでは無視します。
-        const result = await chrome.storage.sync.get('settings');
-        if (result.settings) {
-          currentSettings = { ...DEFAULT_SETTINGS, ...result.settings };
+        // background.js にデータリセットを依頼
+        const response = await chrome.runtime.sendMessage({ type: 'resetAllData' });
+        if (response && response.success) {
+          showNotification(t('resetDataSuccess'), 'success');
+        } else {
+          const errorMsg = response?.error || 'データの削除に失敗しました';
+          showNotification(errorMsg, 'error');
         }
-        currentLang = currentSettings.language;
-        
-        // UIに反映
-        document.getElementById('themeSelect').value = currentSettings.theme;
-        document.getElementById('languageSelect').value = currentSettings.language;
-        document.getElementById('autoSyncToggle').classList.toggle('active', currentSettings.autoSync);
-        document.getElementById('notificationsToggle').classList.toggle('active', currentSettings.notifications);
-        document.getElementById('autoThumbnailToggle').classList.toggle('active', currentSettings.autoThumbnail);
       } catch (error) {
-        console.error('Failed to load settings:', error);
+        console.error('Failed to reset data:', error);
+        showNotification(`エラー: ${error.message}`, 'error');
       }
     }
+  });
+}
 
-    // 設定の保存
-    async function saveSettings() {
-      try {
-        await chrome.storage.sync.set({ settings: currentSettings });
-        showNotification(t('saveSuccess'), 'success');
-      } catch (error) {
-        console.error('Failed to save settings:', error);
-      }
-    }
+// ==================== 通知 ====================
+function showNotification(message, type = 'success') {
+  const notification = document.getElementById('notification');
+  notification.textContent = message;
+  notification.className = `notification ${type} show`;
+  
+  setTimeout(() => {
+    notification.classList.remove('show');
+  }, 3000);
+}
 
-    // ==================== テーマ適用 ====================
-    function applyTheme() {
-      if (currentSettings.theme === 'light') {
-        document.body.classList.add('light-theme');
-      } else {
-        document.body.classList.remove('light-theme');
-      }
-    }
-
-    // ==================== 言語適用 ====================
-    function applyLanguage() {
-      // 全ての翻訳対象要素を更新
-      Object.keys(translations[currentLang]).forEach(key => {
-        const element = document.getElementById(key);
-        if (element) {
-          // セレクトのオプションは特別処理
-          if (element.tagName === 'OPTION') {
-            element.textContent = translations[currentLang][key];
-          } else {
-            element.textContent = translations[currentLang][key];
-          }
-        }
-      });
-      
-      // HTML言語属性も更新
-      document.documentElement.lang = currentLang;
-    }
-
-    // 翻訳関数（動的なメッセージ用）
-    function t(key) {
-      return translations[currentLang][key] || key;
-    }
-
-    // ==================== イベントリスナー ====================
-    function setupEventListeners() {
-      // テーマ変更
-      document.getElementById('themeSelect').addEventListener('change', (e) => {
-        currentSettings.theme = e.target.value;
-        applyTheme();
-        saveSettings();
-      });
-
-      // 言語変更
-      document.getElementById('languageSelect').addEventListener('change', (e) => {
-        currentSettings.language = e.target.value;
-        currentLang = e.target.value;
-        applyLanguage();
-        saveSettings();
-      });
-
-      // トグルスイッチ
-      document.getElementById('autoSyncToggle').addEventListener('click', function() {
-        this.classList.toggle('active');
-        currentSettings.autoSync = this.classList.contains('active');
-        saveSettings();
-      });
-
-      document.getElementById('notificationsToggle').addEventListener('click', function() {
-        this.classList.toggle('active');
-        currentSettings.notifications = this.classList.contains('active');
-        saveSettings();
-      });
-
-      document.getElementById('autoThumbnailToggle').addEventListener('click', function() {
-        this.classList.toggle('active');
-        currentSettings.autoThumbnail = this.classList.contains('active');
-        saveSettings();
-      });
-
-      // リセットボタン
-      document.getElementById('resetBtn').addEventListener('click', async () => {
-        if (confirm(t('resetConfirm'))) {
-          currentSettings = { ...DEFAULT_SETTINGS };
-          await saveSettings();
-          // リセットされた設定をUIに反映
-          await loadSettings();
-          applyTheme();
-          applyLanguage();
-          showNotification(t('resetSuccess'), 'success');
-        }
-      });
-
-      // 閉じるボタン
-      document.getElementById('closeBtn').addEventListener('click', () => {
-        window.close();
-      });
-    }
-
-    // ==================== 通知 ====================
-    function showNotification(message, type = 'success') {
-      const notification = document.getElementById('notification');
-      notification.textContent = message;
-      // 'success'クラスを付けることで、CSSのborder-color: var(--success); が適用される
-      notification.className = `notification ${type} show`;
-      
-      setTimeout(() => {
-        notification.classList.remove('show');
-      }, 3000);
-    }
-
-    // ==================== 起動 ====================
-    init();
+// ==================== 起動 ====================
+init();
