@@ -26,33 +26,35 @@ const translations = {
     'autoCloseIn': '{seconds}秒後に自動的に閉じます',
     'manualClose': '(クリックで手動終了)',
     'unknownError': '不明なエラーが発生しました',
-    'fetchingGroups': '📋 VRCフォルダ情報を取得中...',
-    'fetchingFolder': '📁 フォルダ「{name}」を取得中...',
-    'fetchingDetails': '🖼️ ワールド詳細情報を取得中...',
-    'applyingChanges': '💾 ローカルデータベースに反映中...',
-    'syncComplete': '✓ 同期完了',
-    'removingWorlds': '🗑️ 削除中 ({current}/{total})...',
-    'movingWorlds': '📦 移動中 ({current}/{total})...',
-    'addingWorlds': '➕ 追加中 ({current}/{total})...',
-    'updatingRecords': '🔄 レコードID更新中...',
 
-    // 🔥 bg_vrc_api_service.js から送られる可能性のある進捗メッセージキー (日本語)
-    'VRCフォルダ情報を取得中...': 'VRCフォルダ情報を取得中...',
-    'VRCフォルダ情報取得完了': 'VRCフォルダ情報取得完了',
-    '件のワールドを取得': '件のワールドを取得',
-    'ワールド詳細情報を取得中...': 'ワールド詳細情報を取得中...',
-    'ワールド詳細取得中...': 'ワールド詳細取得中...',
-    '差分を計算中...': '差分を計算中...',
-    'データベースに反映中...': 'データベースに反映中...',
-    '新規ワールドを追加中...': '新規ワールドを追加中...',
-    '取得完了': '取得完了',
-    '同期完了': '同期完了',
-    '同期処理を開始...': '同期処理を開始...', 
-    '同期処理が完了しました。': '同期処理が完了しました。',
-    // ⚠ 動的メッセージに含まれる可能性のある固定文字列を追加
-    '件のワールドを削除中...': '件のワールドを削除中...',
-    '件のワールドを移動中...': '件のワールドを移動中...',
-    '件のワールドを追加中...': '件のワールドを追加中...',
+    // 🔥 VRChat同期 (EXPORT/REFLECT) 関連の進捗メッセージキー
+    'phase0_fetchingGroups': 'VRCフォルダ情報を取得中...',
+    'phase0_fetchingVRCStatus': 'VRC側の現在状態を取得中...',
+    'phase0_fetchingFolder': 'フォルダ「{name}」を確認中...',
+    'phase0_calculating': '差分を計算中...',
+    'phase0_calculationComplete': '差分計算完了 (削除:{toRemove} 移動:{toMove} 追加:{toAdd})',
+    'phase0_noChanges': '変更なし',
+    'phase1_removing': '削除中... ({current}/{total})',
+    'phase1_complete': 'Phase 1 完了: {count}/{total}件削除',
+    'phase2_moving': '移動中... ({current}/{total})',
+    'phase2_complete': 'Phase 2 完了: {count}/{total}件移動',
+    'phase3_adding': '追加中... ({current}/{total})',
+    'phase3_complete': 'Phase 3 完了: {count}/{total}件追加',
+    'phase4_updating': 'レコードIDを更新中...',
+    'phase4_complete': '同期完了',
+    'sync_start': '同期処理を開始...',
+
+    // 🔥 VRChat取得 (FETCH) 関連の進捗メッセージキー
+    'fetch_phase0_fetchingGroups': 'VRCフォルダ情報を取得中...',
+    'fetch_phase0_groupsComplete': 'VRCフォルダ情報取得完了',
+    'fetch_phase1_fetchingFolder': 'フォルダ「{name}」を取得中...',
+    'fetch_phase1_worldsFetched': '{count}件のワールドを取得',
+    'fetch_phase2_fetchingDetails': 'ワールド詳細情報を取得中...',
+    'fetch_phase2_detailsProgress': 'ワールド詳細取得中... ({current}/{total})',
+    'fetch_phase3_calculating': '差分を計算中...',
+    'fetch_phase4_applying': 'データベースに反映中...',
+    'fetch_phase5_addingNew': '新規ワールドを追加中...',
+    'fetch_phase6_complete': '取得完了',
   },
   en: {
     'bridgeTitle': 'VRChat Sync Bridge',
@@ -76,33 +78,35 @@ const translations = {
     'autoCloseIn': 'Auto-closing in {seconds} seconds',
     'manualClose': '(Click to close manually)',
     'unknownError': 'An unknown error occurred',
-    'fetchingGroups': '📋 Fetching VRC folder information...',
-    'fetchingFolder': '📁 Fetching folder "{name}"...',
-    'fetchingDetails': '🖼️ Fetching world details...',
-    'applyingChanges': '💾 Applying to local database...',
-    'syncComplete': '✓ Sync completed',
-    'removingWorlds': '🗑️ Removing ({current}/{total})...',
-    'movingWorlds': '📦 Moving ({current}/{total})...',
-    'addingWorlds': '➕ Adding ({current}/{total})...',
-    'updatingRecords': '🔄 Updating record IDs...',
 
-    // 🔥 bg_vrc_api_service.js からの進捗メッセージの英語翻訳
-    'VRCフォルダ情報を取得中...': 'Fetching VRC folder information...',
-    'VRCフォルダ情報取得完了': 'VRC folder information fetched',
-    '件のワールドを取得': ' worlds fetched',
-    'ワールド詳細情報を取得中...': 'Fetching world details...',
-    'ワールド詳細取得中...': 'Fetching details...',
-    '差分を計算中...': 'Calculating differences...',
-    'データベースに反映中...': 'Applying to database...',
-    '新規ワールドを追加中...': 'Adding new worlds...',
-    '取得完了': 'Fetch complete',
-    '同期完了': 'Sync complete',
-    '同期処理を開始...': 'Starting sync process...', 
-    '同期処理が完了しました。': 'Sync process completed.',
-    // ⚠ 動的メッセージに含まれる可能性のある固定文字列を追加
-    '件のワールドを削除中...': ' worlds removing...',
-    '件のワールドを移動中...': ' worlds moving...',
-    '件のワールドを追加中...': ' worlds adding...',
+    // 🔥 VRChat同期 (EXPORT/REFLECT) 関連の進捗メッセージキー
+    'phase0_fetchingGroups': 'Fetching VRC folder information...',
+    'phase0_fetchingVRCStatus': 'Fetching current VRC status...',
+    'phase0_fetchingFolder': 'Checking folder "{name}"...',
+    'phase0_calculating': 'Calculating differences...',
+    'phase0_calculationComplete': 'Calculation complete (Remove:{toRemove} Move:{toMove} Add:{toAdd})',
+    'phase0_noChanges': 'No changes',
+    'phase1_removing': 'Removing... ({current}/{total})',
+    'phase1_complete': 'Phase 1 complete: {count}/{total} removed',
+    'phase2_moving': 'Moving... ({current}/{total})',
+    'phase2_complete': 'Phase 2 complete: {count}/{total} moved',
+    'phase3_adding': 'Adding... ({current}/{total})',
+    'phase3_complete': 'Phase 3 complete: {count}/{total} added',
+    'phase4_updating': 'Updating record IDs...',
+    'phase4_complete': 'Sync completed',
+    'sync_start': 'Starting sync process...',
+
+    // 🔥 VRChat取得 (FETCH) 関連の進捗メッセージキー
+    'fetch_phase0_fetchingGroups': 'Fetching VRC folder information...',
+    'fetch_phase0_groupsComplete': 'VRC folder information fetched',
+    'fetch_phase1_fetchingFolder': 'Fetching folder "{name}"...',
+    'fetch_phase1_worldsFetched': '{count} worlds fetched',
+    'fetch_phase2_fetchingDetails': 'Fetching world details...',
+    'fetch_phase2_detailsProgress': 'Fetching details... ({current}/{total})',
+    'fetch_phase3_calculating': 'Calculating differences...',
+    'fetch_phase4_applying': 'Applying to database...',
+    'fetch_phase5_addingNew': 'Adding new worlds...',
+    'fetch_phase6_complete': 'Fetch complete',
   }
 };
 
@@ -118,10 +122,13 @@ function t(key, params = {}) {
   
   // 2. 翻訳が見つからなかった場合、かつ現在の言語が日本語でない場合、
   //    日本語キー（元のメッセージ）が英語辞書にキーとして登録されているか確認し、翻訳を取得
-  if (!translatedText && lang !== 'ja') {
-     translatedText = translations['en'][key];
-  }
-
+  // 🔥 修正: 日本語キーではなく、英語辞書にキー自体が登録されているか確認。
+  //          ここでは、翻訳キー（例: 'phase1_removing'）が、現在の言語辞書に見つからなかった場合、
+  //          デフォルトの日本語辞書も確認するロジックは削除し、キーが見つからなければキーをそのまま返す。
+  //          メッセージキー方式では、キーは 'phase1_removing' のような英語ベースの識別子であるため、
+  //          keyが日本語の文字列であるという前提はここでは持たない。
+  //          よって、元のコードのステップ2は不要で、ステップ3に直行。
+  
   // 3. それでも翻訳が見つからなければ、キー自体をそのまま使用（通常は日本語メッセージ）
   if (!translatedText) translatedText = key;
 
@@ -220,7 +227,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('[Bridge] Received message:', request.action, request);
     switch (request.action) {
       case 'VRC_ACTION_PROGRESS':
-        // 🔥 進捗ログの翻訳対応: request.messageが日本語キーとして送られてきた場合、現在の言語に翻訳します。
+        // 🔥 進捗ログの翻訳対応: request.messageが翻訳キーとして送られてきた場合、現在の言語に翻訳します。
+        // requestオブジェクトの残りのプロパティはt関数のparamsとしてそのまま使用されます。
         const translatedMessage = t(request.message, request); 
         updateStatus(translatedMessage, false);
         updateProgress(request.percent || 0);
@@ -306,12 +314,12 @@ function handleComplete(result) {
   updateProgress(100);
 
   let message = t('actionComplete');
-  if (result.addedCount !== undefined || result.movedCount !== undefined) {
+  if (result.addedCount !== undefined && result.removedCount === undefined) { // FETCH
     message = t('fetchComplete', {
       addedCount: result.addedCount || 0,
       movedCount: result.movedCount || 0
     });
-  } else if (result.removedCount !== undefined) {
+  } else if (result.removedCount !== undefined) { // REFLECT
     message = t('reflectComplete', {
       removedCount: result.removedCount || 0,
       movedCount: result.movedCount || 0,

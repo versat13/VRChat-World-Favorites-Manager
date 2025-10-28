@@ -77,7 +77,7 @@ async function fetchWorldDetailsBatch(worldIds) {
             thumbnailImageUrl: world.thumbnailImageUrl
           }
         };
-      } catch (e) {
+      } catch (error) {
         logError('API_FETCH_DETAILS_EXCEPTION', e, { worldId });
         return null;
       }
@@ -139,7 +139,7 @@ async function fetchWorldDetailsBatchWithProgress(worldIds, progressCallback) {
             thumbnailImageUrl: world.thumbnailImageUrl
           }
         };
-      } catch (e) {
+      } catch (error) {
         logError('API_FETCH_DETAILS_EXCEPTION', e, { worldId });
         return null;
       }
@@ -174,9 +174,16 @@ async function fetchWorldDetailsBatchWithProgress(worldIds, progressCallback) {
 // VRChat API (ページ操作用)
 // ========================================
 
+/**
+ * 特定のワールドがVRChatのお気に入りに追加されているか、およびフォルダ情報を取得
+ * @param {string} worldId - ワールドID
+ * @param {Function} sendResponse - レスポンスを返す関数
+ */
 async function getVRCFavoriteInfo(worldId, sendResponse) {
   try {
     logAction('API_GET_FAV_INFO', { worldId });
+    
+    // API呼び出し: 特定のworldIdを持つお気に入りを検索
     const response = await fetch(`${API_BASE}/favorites?type=world&favoriteId=${worldId}`, {
       method: 'GET',
       credentials: 'include'
@@ -189,19 +196,190 @@ async function getVRCFavoriteInfo(worldId, sendResponse) {
 
     const data = await response.json();
 
+    // 取得したお気に入りレコードの配列 (最大1件)
     if (data.length === 0) {
-      sendResponse({ success: true, favorited: false });
+      // 登録されていない場合
+      sendResponse({
+        success: true,
+        favorited: false
+      });
     } else {
+      // 登録されている場合
       const favorite = data[0];
       sendResponse({
         success: true,
         favorited: true,
         favoriteRecordId: favorite.id,
-        folderId: favorite.tags?.[0] || 'worlds1'
+        // tags配列の最初の要素をfolderIdとして返す (VRChatのお気に入りフォルダは1つのみ)
+        folderId: favorite.tags?.[0] || 'worlds1' 
       });
     }
   } catch (error) {
+    // ネットワークエラーやその他の例外が発生した場合
     logError('API_GET_FAV_INFO_ERROR', error, { worldId });
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+// ========================================
+// 統合VRChatSync処理 (ブリッジウィンドウ用)
+// ========================================
+
+/**
+ * VRChatブリッジウィンドウからの統合同期処理
+ * @param {string} actionType - 'FETCH' または 'REFLECT'
+ * @param {Function} progressCallback - 進捗通知用コールバック (action, payload)
+ */
+async function startVRChatSyncProcess(actionType, progressCallback) {
+  const DEBUG = true;
+
+  try {
+    if (DEBUG) console.log(`[VRC_BRIDGE] Starting ${actionType} process`);
+
+    const notifyProgress = (message, percent, params = {}) => {
+      if (progressCallback) {
+        progressCallback('VRC_ACTION_PROGRESS', { message, percent, ...params });
+      }
+    };
+
+    const notifyComplete = (result = {}) => {
+      if (progressCallback) {
+        progressCallback('VRC_ACTION_COMPLETE', { result });
+      }
+    };
+
+    const notifyError = (error) => {
+      if (progressCallback) {
+        progressCallback('VRC_ACTION_ERROR', { error });
+      }
+    };
+
+    if (actionType === 'FETCH') {
+      notifyProgress('fetch_phase0_fetchingGroups', 10);
+
+      const result = await new Promise((resolve, reject) => {
+        fetchAllVRCFolders(
+          (response) => {
+            if (response.success || response.addedCount > 0) {
+              resolve(response);
+            } else {
+              reject(new Error(response.error || '取得に失敗しました'));
+            }
+          },
+          // 🔥 fetchAllVRCFoldersからの進捗をそのままブリッジウィンドウへ転送
+          (message, percent, params) => {
+            notifyProgress(message, percent, params);
+          }
+        );
+      });
+
+      if (result.success || result.addedCount > 0) {
+        notifyComplete(result);
+      } else {
+        notifyError(result.error || '取得に失敗しました');
+      }
+
+    } else if (actionType === 'REFLECT') {
+      notifyProgress('phase0_fetchingGroups', 10);
+
+      await ensureVRCTagMapInitialized();
+
+      notifyProgress('sync_start', 20);
+
+      // 🔥 v1.0.2修正: syncAllFavoritesに進捗コールバックを渡す
+      const result = await new Promise((resolve, reject) => {
+        syncAllFavorites(
+          (response) => {
+            if (response.success || response.removedCount > 0 || response.movedCount > 0 || response.addedCount > 0) {
+              resolve(response);
+            } else {
+              reject(new Error(response.error || '反映に失敗しました'));
+            }
+          },
+          // 🔥 v1.0.2修正: 第2引数として進捗コールバックを渡す
+          (message, percent, params) => {
+            notifyProgress(message, percent, params);
+          }
+        );
+      });
+
+      if (result.success || result.removedCount > 0 || result.movedCount > 0 || result.addedCount > 0) {
+        // 最終的なメッセージはhandleCompleteで処理されるため、ここでは通知しない
+        notifyComplete(result);
+      } else {
+        notifyError(result.error || '反映に失敗しました');
+      }
+
+    } else {
+      const errorMsg = '不明なアクションタイプ: ' + actionType;
+      logError('VRC_BRIDGE_INVALID_ACTION', errorMsg, { actionType });
+      notifyError(errorMsg);
+    }
+
+  } catch (error) {
+    logError('VRC_BRIDGE_FATAL', error, { actionType });
+    if (progressCallback) {
+      progressCallback('VRC_ACTION_ERROR', { error: error.message });
+    }
+  }
+}
+
+// ========================================
+// 単一ワールド詳細取得 (popup.js用)
+// ========================================
+
+/**
+ * 単一ワールドの詳細情報を取得
+ */
+async function getSingleWorldDetails(worldId, sendResponse) {
+  try {
+    logAction('API_GET_SINGLE_WORLD', { worldId });
+
+    const response = await fetch(`${API_BASE}/worlds/${worldId}`, {
+      method: 'GET',
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        sendResponse({
+          success: true,
+          status: 404,
+          details: {
+            id: worldId,
+            name: '[Deleted]',
+            authorName: null,
+            releaseStatus: 'deleted',
+            thumbnailImageUrl: null
+          }
+        });
+        return;
+      }
+
+      logError('API_GET_SINGLE_WORLD_ERROR', `Status ${response.status}`, { worldId });
+      sendResponse({
+        success: false,
+        error: `API error: ${response.status}`,
+        status: response.status
+      });
+      return;
+    }
+
+    const data = await response.json();
+    sendResponse({
+      success: true,
+      details: {
+        id: data.id,
+        name: data.name,
+        authorName: data.authorName,
+        releaseStatus: data.releaseStatus,
+        thumbnailImageUrl: data.thumbnailImageUrl
+      }
+    });
+
+    logAction('API_GET_SINGLE_WORLD_SUCCESS', { worldId });
+  } catch (error) {
+    logError('API_GET_SINGLE_WORLD_EXCEPTION', error, { worldId });
     sendResponse({ success: false, error: error.message });
   }
 }
@@ -300,7 +478,7 @@ async function addVRCFavorite(worldId, folderId, sendResponse) {
       try {
         const errorData = await response.json();
         errorDetail = errorData.error?.message || JSON.stringify(errorData);
-      } catch (e) {
+      } catch (error) {
         errorDetail = await response.text();
       }
       
@@ -359,7 +537,7 @@ async function deleteVRCFavorite(favoriteRecordId, sendResponse) {
       try {
         const errorData = await response.json();
         errorDetail = errorData.error?.message || JSON.stringify(errorData);
-      } catch (e) {
+      } catch (error) {
         errorDetail = await response.text();
       }
       
@@ -449,19 +627,20 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null) {
     logAction('FETCH_ALL_VRC_START', {});
 
     // 進捗通知ヘルパー
-    const notifyProgress = (message, percent) => {
+    // 🔥 fetchAllVRCFoldersは、fetch系の汎用的なメッセージを使用する
+    const notifyProgress = (message, percent, params = {}) => {
       if (progressCallback) {
-        progressCallback(message, percent);
+        progressCallback(message, percent, params);
       }
     };
 
-    notifyProgress('VRCフォルダ情報を取得中...', 5);
+    notifyProgress('fetch_phase0_fetchingGroups', 5);
 
     // 1: VRCフォルダ情報取得
     const worldGroups = await fetchVRChatFavoriteGroups();
     await updateVRCFolderData(worldGroups);
 
-    notifyProgress('VRCフォルダ情報取得完了', 10);
+    notifyProgress('fetch_phase0_groupsComplete', 10);
 
     // 2: 各フォルダからワールド取得
     const allVRCWorlds = [];
@@ -471,7 +650,9 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null) {
       const group = worldGroups[i];
       const mappedFolderId = folderIds[i];
 
-      notifyProgress(`フォルダ「${group.displayName}」を取得中...`, 10 + (i * 5));
+      notifyProgress('fetch_phase1_fetchingFolder', 10 + (i * 5), { 
+        name: group.displayName
+      });
 
       try {
         const favorites = await fetchVRChatFavoritesByTag(group.name);
@@ -486,23 +667,24 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null) {
           }
         }
         await sleep(300);
-      } catch (e) {
+      } catch (error) {
         logError('FETCH_VRC_FOLDER_ERROR', e, { folder: group.name });
       }
     }
 
     logAction('VRC_WORLDS_FETCHED', { totalCount: allVRCWorlds.length });
-    notifyProgress(`${allVRCWorlds.length}件のワールドを取得`, 30);
+    notifyProgress('fetch_phase1_worldsFetched', 30, { count: allVRCWorlds.length });
 
     // 2.5: ワールド詳細情報を取得
-    notifyProgress('ワールド詳細情報を取得中...', 35);
+    notifyProgress('fetch_phase2_fetchingDetails', 35);
 
     const worldIds = allVRCWorlds.map(w => w.id);
     const worldDetailsMap = await fetchWorldDetailsBatchWithProgress(
       worldIds,
       (current, total) => {
         const progress = 35 + Math.floor((current / total) * 50); // 35%～85%
-        notifyProgress(`ワールド詳細取得中... (${current}/${total})`, progress);
+        // 🔥 進捗率だけでなく、件数情報も通知する
+        notifyProgress('fetch_phase2_detailsProgress', progress, { current, total });
       }
     );
 
@@ -514,7 +696,7 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null) {
       world.thumbnailImageUrl = details?.thumbnailImageUrl;
     }
 
-    notifyProgress('差分を計算中...', 85);
+    notifyProgress('fetch_phase3_calculating', 85);
 
     // 3: 既存ワールドとの差分計算
     const allExisting = await getAllWorldsInternal();
@@ -539,7 +721,7 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null) {
     }
     logAction('VRC_DIFF_CALCULATED', { toMove: toMove.length, toAdd: toAdd.length });
 
-    notifyProgress('データベースに反映中...', 90);
+    notifyProgress('fetch_phase4_applying', 90);
 
     // 4: 移動処理 (バッチ処理を流用)
     let movedCount = 0;
@@ -550,7 +732,7 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null) {
       movedCount = moveResponse.movedCount || 0;
     }
 
-    notifyProgress('新規ワールドを追加中...', 95);
+    notifyProgress('fetch_phase5_addingNew', 95);
 
     // 5: 新規追加処理
     let addedCount = 0;
@@ -562,7 +744,7 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null) {
       await sleep(80);
     }
 
-    notifyProgress('取得完了', 100);
+    notifyProgress('fetch_phase6_complete', 100);
 
     logAction('FETCH_ALL_VRC_COMPLETE', { moved: movedCount, added: addedCount });
     sendResponse({
@@ -584,12 +766,12 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null) {
 // ========================================
 
 /**
- * 完全同期: 拡張機能の状態をVRC公式に反映
- * 🔥 修正: VRC_TAG_MAPの初期化を確実に行う
+ * 完全同期: 拡張機能の状態をVRC公式に反映 
+ * 🔥 v1.0.2: 進捗バーの粒度を大幅に改善, メッセージを翻訳キー化
  */
 async function syncAllFavorites(sendResponse, progressCallback = null) {
   const DEBUG = true;
-  const SYNC_DELAY = 500
+  const SYNC_DELAY = 500;
 
   let removedCount = 0;
   let movedCount = 0;
@@ -601,9 +783,10 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
 
   try {
     // 進捗通知ヘルパー
-    const notifyProgress = (message, percent) => {
+    // 🔥 メッセージは翻訳キーを使用し、必要なパラメータを渡す
+    const notifyProgress = (message, percent, params = {}) => {
       if (progressCallback) {
-        progressCallback(message, percent);
+        progressCallback(message, percent, params);
       }
     };
 
@@ -616,7 +799,7 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
     // ========================================
     if (DEBUG) console.log('[SYNC_EXPORT] Phase 0: 状態取得開始');
 
-    notifyProgress('VRCフォルダ情報を取得中...', 5);
+    notifyProgress('phase0_fetchingGroups', 5);
 
     // 🔥 修正: VRC_TAG_MAPを確実に初期化
     VRC_TAG_MAP = await ensureVRCTagMapInitialized();
@@ -627,13 +810,15 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
     const vrcMap = new Map();
     const folderIds = ['worlds1', 'worlds2', 'worlds3', 'worlds4'];
 
-    notifyProgress('VRC側の現在状態を取得中...', 10);
+    notifyProgress('phase0_fetchingVRCStatus', 10);
 
     for (let i = 0; i < worldGroups.length && i < 4; i++) {
       const group = worldGroups[i];
       const mappedFolderId = folderIds[i];
 
-      notifyProgress(`フォルダ「${group.displayName}」を確認中...`, 10 + (i * 3));
+      notifyProgress('phase0_fetchingFolder', 10 + (i * 3), {
+        name: group.displayName
+      });
 
       try {
         const favorites = await fetchVRChatFavoritesByTag(group.name);
@@ -648,7 +833,7 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
           }
         }
         await sleep(300);
-      } catch (e) {
+      } catch (error) {
         logError('SYNC_EXPORT_FETCH_VRC_FOLDER', e, { folder: group.name });
         errors.push(`VRCフォルダ取得失敗 (${group.name}): ${e.message}`);
       }
@@ -669,7 +854,7 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
     }
     if (DEBUG) console.log('[SYNC_EXPORT] ローカル側ワールド数:', localMap.size);
 
-    notifyProgress('差分を計算中...', 25);
+    notifyProgress('phase0_calculating', 25);
 
     // ========================================
     // 差分計算
@@ -718,15 +903,19 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
     if (DEBUG) console.log('[SYNC_EXPORT] 移動対象:', toMove.length);
     if (DEBUG) console.log('[SYNC_EXPORT] 追加対象:', toAdd.length);
 
-    notifyProgress(`差分計算完了 (削除:${toRemove.length} 移動:${toMove.length} 追加:${toAdd.length})`, 30);
-
     totalRemove = toRemove.length;
     totalMove = toMove.length;
     totalAdd = toAdd.length;
+    
+    notifyProgress('phase0_calculationComplete', 30, {
+      toRemove: totalRemove,
+      toMove: totalMove,
+      toAdd: totalAdd
+    });
 
-    if (toRemove.length === 0 && toMove.length === 0 && toAdd.length === 0) {
+    if (totalRemove === 0 && totalMove === 0 && totalAdd === 0) {
       if (DEBUG) console.log('[SYNC_EXPORT] 変更なし');
-      notifyProgress('変更なし', 100);
+      notifyProgress('phase0_noChanges', 100);
       sendResponse({
         success: true,
         removedCount: 0,
@@ -738,18 +927,22 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
     }
 
     // ========================================
-    // Phase 1: 削除
+    // Phase 1: 削除 (30% → 45%)
     // ========================================
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
-    if (DEBUG) console.log('[SYNC_EXPORT] Phase 1: 削除処理 (' + toRemove.length + '件)');
+    if (DEBUG) console.log('[SYNC_EXPORT] Phase 1: 削除処理 (' + totalRemove + '件)');
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
 
-    notifyProgress('Phase 1: 削除処理開始...', 35);
+    const PHASE1_START = 30;
+    const PHASE1_END = 45;
+    const PHASE1_RANGE = PHASE1_END - PHASE1_START;
 
-    for (let i = 0; i < toRemove.length; i++) {
+    for (let i = 0; i < totalRemove; i++) {
       const item = toRemove[i];
-      const progress = 35 + Math.floor((i / totalRemove) * 15); // 35-50%
-      notifyProgress(`削除中... (${i + 1}/${totalRemove})`, progress);
+      
+      // 🔥 v1.0.2: 個別アイテムごとに進捗を更新
+      const progress = PHASE1_START + Math.floor((i / totalRemove) * PHASE1_RANGE);
+      notifyProgress('phase1_removing', progress, { current: i + 1, total: totalRemove });
 
       try {
         if (DEBUG) console.log(`[SYNC_EXPORT] 削除: ${item.worldId} (${item.folderId})`);
@@ -768,31 +961,36 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
           errors.push(`削除失敗 (${item.worldId}): ${response.status}`);
         }
 
-        // 🔥 10件ごとにのみ待機
-        if ((i + 1) % 10 === 0 || i === toRemove.length - 1) {
+        // 🔥 v1.0.2: 10件ごとにのみ待機（効率化）
+        if ((i + 1) % 10 === 0 || i === totalRemove - 1) {
           await sleep(SYNC_DELAY);
         }
-      } catch (e) {
+      } catch (error) {
         logError('SYNC_EXPORT_DELETE_EXCEPTION', e, { worldId: item.worldId });
         errors.push(`削除エラー (${item.worldId}): ${e.message}`);
       }
     }
 
-    if (DEBUG) console.log(`[SYNC_EXPORT] Phase 1 完了: ${removedCount}/${toRemove.length}件削除`);
+    notifyProgress('phase1_complete', PHASE1_END, { count: removedCount, total: totalRemove });
+    if (DEBUG) console.log(`[SYNC_EXPORT] Phase 1 完了: ${removedCount}/${totalRemove}件削除`);
 
     // ========================================
-    // Phase 2: 移動
+    // Phase 2: 移動 (45% → 70%)
     // ========================================
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
-    if (DEBUG) console.log('[SYNC_EXPORT] Phase 2: 移動処理 (' + toMove.length + '件)');
+    if (DEBUG) console.log('[SYNC_EXPORT] Phase 2: 移動処理 (' + totalMove + '件)');
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
 
-    notifyProgress('Phase 2: 移動処理開始...', 50);
+    const PHASE2_START = 45;
+    const PHASE2_END = 70;
+    const PHASE2_RANGE = PHASE2_END - PHASE2_START;
 
-    for (let i = 0; i < toMove.length; i++) {
+    for (let i = 0; i < totalMove; i++) {
       const item = toMove[i];
-      const progress = 50 + Math.floor((i / totalMove) * 20); // 50-70%
-      notifyProgress(`移動中... (${i + 1}/${totalMove})`, progress);
+      
+      // 🔥 v1.0.2: 個別アイテムごとに進捗を更新
+      const progress = PHASE2_START + Math.floor((i / totalMove) * PHASE2_RANGE);
+      notifyProgress('phase2_moving', progress, { current: i + 1, total: totalMove });
 
       try {
         // private/deleted は移動不可
@@ -814,11 +1012,16 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
           const errorText = await deleteResponse.text();
           logError('SYNC_EXPORT_MOVE_DELETE_FAILED', `Status ${deleteResponse.status}`, { worldId: item.worldId, errorText });
           errors.push(`移動削除失敗 (${item.worldId}): ${deleteResponse.status}`);
-          await sleep(SYNC_DELAY);
+          
+          // 🔥 v1.0.2: 削除失敗時は次へ（待機は10件ごと）
+          if ((i + 1) % 10 === 0 || i === totalMove - 1) {
+            await sleep(SYNC_DELAY);
+          }
           continue;
         }
 
-        await sleep(SYNC_DELAY);
+        // 🔥 v1.0.2: 削除成功後の短い待機（200ms）
+        await sleep(200);
 
         // 2. 追加
         const targetTag = getOfficialTagFromLocalFolderId(item.toFolder);
@@ -851,28 +1054,36 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
           errors.push(`移動追加失敗 (${item.worldId}): ${addResponse.status}`);
         }
 
-        await sleep(SYNC_DELAY);
-      } catch (e) {
+        // 🔥 v1.0.2: 10件ごとにのみ待機
+        if ((i + 1) % 10 === 0 || i === totalMove - 1) {
+          await sleep(SYNC_DELAY);
+        }
+      } catch (error) {
         logError('SYNC_EXPORT_MOVE_EXCEPTION', e, { worldId: item.worldId });
         errors.push(`移動エラー (${item.worldId}): ${e.message}`);
       }
     }
 
-    if (DEBUG) console.log(`[SYNC_EXPORT] Phase 2 完了: ${movedCount}/${toMove.length}件移動`);
+    notifyProgress('phase2_complete', PHASE2_END, { count: movedCount, total: totalMove });
+    if (DEBUG) console.log(`[SYNC_EXPORT] Phase 2 完了: ${movedCount}/${totalMove}件移動`);
 
     // ========================================
-    // Phase 3: 追加
+    // Phase 3: 追加 (70% → 90%)
     // ========================================
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
-    if (DEBUG) console.log('[SYNC_EXPORT] Phase 3: 追加処理 (' + toAdd.length + '件)');
+    if (DEBUG) console.log('[SYNC_EXPORT] Phase 3: 追加処理 (' + totalAdd + '件)');
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
 
-    notifyProgress('Phase 3: 追加処理開始...', 70);
+    const PHASE3_START = 70;
+    const PHASE3_END = 90;
+    const PHASE3_RANGE = PHASE3_END - PHASE3_START;
 
-    for (let i = 0; i < toAdd.length; i++) {
+    for (let i = 0; i < totalAdd; i++) {
       const item = toAdd[i];
-      const progress = 70 + Math.floor((i / totalAdd) * 20); // 70-90%
-      notifyProgress(`追加中... (${i + 1}/${totalAdd})`, progress);
+      
+      // 🔥 v1.0.2: 個別アイテムごとに進捗を更新
+      const progress = PHASE3_START + Math.floor((i / totalAdd) * PHASE3_RANGE);
+      notifyProgress('phase3_adding', progress, { current: i + 1, total: totalAdd });
 
       try {
         // private/deleted は追加不可
@@ -914,26 +1125,27 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
           errors.push(`追加失敗 (${item.worldId}): ${response.status}`);
         }
 
-        // 🔥 10件ごとにのみ待機
-        if ((i + 1) % 10 === 0 || i === toAdd.length - 1) {
+        // 🔥 v1.0.2: 10件ごとにのみ待機
+        if ((i + 1) % 10 === 0 || i === totalAdd - 1) {
           await sleep(SYNC_DELAY);
         }
-      } catch (e) {
+      } catch (error) {
         logError('SYNC_EXPORT_ADD_EXCEPTION', e, { worldId: item.worldId });
         errors.push(`追加エラー (${item.worldId}): ${e.message}`);
       }
     }
 
-    if (DEBUG) console.log(`[SYNC_EXPORT] Phase 3 完了: ${addedCount}/${toAdd.length}件追加`);
+    notifyProgress('phase3_complete', PHASE3_END, { count: addedCount, total: totalAdd });
+    if (DEBUG) console.log(`[SYNC_EXPORT] Phase 3 完了: ${addedCount}/${totalAdd}件追加`);
 
     // ========================================
-    // Phase 4: favoriteRecordId の更新
+    // Phase 4: favoriteRecordId の更新 (90% → 100%)
     // ========================================
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
     if (DEBUG) console.log('[SYNC_EXPORT] Phase 4: favoriteRecordId 更新');
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
 
-    notifyProgress('レコードIDを更新中...', 90);
+    notifyProgress('phase4_updating', 92);
 
     const updatedVRCWorlds = [];
     let updateCount = 0;
@@ -965,7 +1177,7 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
     await chrome.storage.local.set({ vrcWorlds: updatedVRCWorlds });
     if (DEBUG) console.log(`[SYNC_EXPORT] favoriteRecordId 更新: ${updateCount}件`);
 
-    notifyProgress('同期完了', 100);
+    notifyProgress('phase4_complete', 100);
 
     // ========================================
     // 完了
@@ -990,9 +1202,9 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
       removedCount,
       movedCount,
       addedCount,
-      totalRemove: toRemove.length,
-      totalMove: toMove.length,
-      totalAdd: toAdd.length,
+      totalRemove: totalRemove,
+      totalMove: totalMove,
+      totalAdd: totalAdd,
       errors: errors.length > 0 ? errors : null
     });
 
@@ -1008,164 +1220,5 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
       addedCount,
       errors
     });
-  }
-}
-
-// ========================================
-// 統合VRChat同期処理 (ブリッジウィンドウ用) - メイン実装
-// ========================================
-
-/**
- * VRChatブリッジウィンドウからの統合同期処理
- * @param {string} actionType - 'FETCH' または 'REFLECT'
- * @param {Function} progressCallback - 進捗通知用コールバック (action, payload)
- */
-async function startVRChatSyncProcess(actionType, progressCallback) {
-  const DEBUG = true;
-
-  try {
-    if (DEBUG) console.log(`[VRC_BRIDGE] Starting ${actionType} process`);
-
-    const notifyProgress = (message, percent) => {
-      if (progressCallback) {
-        progressCallback('VRC_ACTION_PROGRESS', { message, percent });
-      }
-    };
-
-    const notifyComplete = (result = {}) => {
-      if (progressCallback) {
-        progressCallback('VRC_ACTION_COMPLETE', { result });
-      }
-    };
-
-    const notifyError = (error) => {
-      if (progressCallback) {
-        progressCallback('VRC_ACTION_ERROR', { error });
-      }
-    };
-
-    if (actionType === 'FETCH') {
-      notifyProgress('VRCフォルダ情報を取得中...', 10);
-
-      // 🔥 修正: Promiseでラップ
-      const result = await new Promise((resolve, reject) => {
-        fetchAllVRCFolders(
-          (response) => {
-            if (response.success || response.addedCount > 0) {
-              resolve(response);
-            } else {
-              reject(new Error(response.error || '取得に失敗しました'));
-            }
-          },
-          (message, percent) => {
-            // 進捗コールバック: fetchAllVRCFolders内から呼ばれる
-            notifyProgress(message, percent);
-          }
-        );
-      });
-
-      if (result.success || result.addedCount > 0) {
-        notifyComplete(result);
-      } else {
-        notifyError(result.error || '取得に失敗しました');
-      }
-
-    } else if (actionType === 'REFLECT') {
-      notifyProgress('VRCフォルダ情報を取得中...', 10);
-
-      await ensureVRCTagMapInitialized();
-
-      notifyProgress('同期処理を開始...', 20);
-
-      const result = await new Promise((resolve, reject) => {
-        syncAllFavorites(
-          (response) => {
-            if (response.success || response.removedCount > 0 || response.movedCount > 0 || response.addedCount > 0) {
-              resolve(response);
-            } else {
-              reject(new Error(response.error || '反映に失敗しました'));
-            }
-          }
-        );
-      });
-
-      if (result.success || result.removedCount > 0 || result.movedCount > 0 || result.addedCount > 0) {
-        notifyProgress(`反映完了: ${result.removedCount}削除, ${result.movedCount}移動, ${result.addedCount}追加`, 100);
-        notifyComplete(result);
-      } else {
-        notifyError(result.error || '反映に失敗しました');
-      }
-
-    } else {
-      const errorMsg = '不明なアクションタイプ: ' + actionType;
-      logError('VRC_BRIDGE_INVALID_ACTION', errorMsg, { actionType });
-      notifyError(errorMsg);
-    }
-
-  } catch (error) {
-    logError('VRC_BRIDGE_FATAL', error, { actionType });
-    if (progressCallback) {
-      progressCallback('VRC_ACTION_ERROR', { error: error.message });
-    }
-  }
-}
-
-// ========================================
-// 単一ワールド詳細取得 (popup.js用)
-// ========================================
-
-/**
- * 単一ワールドの詳細情報を取得
- */
-async function getSingleWorldDetails(worldId, sendResponse) {
-  try {
-    logAction('API_GET_SINGLE_WORLD', { worldId });
-
-    const response = await fetch(`${API_BASE}/worlds/${worldId}`, {
-      method: 'GET',
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      if (response.status === 404) {
-        sendResponse({
-          success: true,
-          status: 404,
-          details: {
-            id: worldId,
-            name: '[Deleted]',
-            authorName: null,
-            releaseStatus: 'deleted',
-            thumbnailImageUrl: null
-          }
-        });
-        return;
-      }
-
-      logError('API_GET_SINGLE_WORLD_ERROR', `Status ${response.status}`, { worldId });
-      sendResponse({
-        success: false,
-        error: `API error: ${response.status}`,
-        status: response.status
-      });
-      return;
-    }
-
-    const data = await response.json();
-    sendResponse({
-      success: true,
-      details: {
-        id: data.id,
-        name: data.name,
-        authorName: data.authorName,
-        releaseStatus: data.releaseStatus,
-        thumbnailImageUrl: data.thumbnailImageUrl
-      }
-    });
-
-    logAction('API_GET_SINGLE_WORLD_SUCCESS', { worldId });
-  } catch (error) {
-    logError('API_GET_SINGLE_WORLD_EXCEPTION', error, { worldId });
-    sendResponse({ success: false, error: error.message });
   }
 }
