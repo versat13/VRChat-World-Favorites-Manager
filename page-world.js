@@ -1,7 +1,104 @@
-console.log("[VRC Resolver] World Page Script v1.1.0");
+// page-world.js v1.2.0
 
 (function () {
   'use strict';
+
+  // ==================== 翻訳データ ====================
+  const translations = {
+    ja: {
+      extInvalidated: '拡張機能が更新されました。ページを再読み込みしてください',
+      copyLink: 'リンクをコピー',
+      saveToChrome: 'Chromeに保存',
+      deleteFromChrome: 'Chromeから削除',
+      deleteFromVRC: 'VRChatから削除',
+      linkCopied: 'コピーしました!',
+      addedSuccess: '「{name}」を未分類に追加しました',
+      alreadySaved: '「{name}」は既に「{folder}」に登録済みです',
+      selectFolder: '📁 フォルダを選択',
+      selectFolderDesc: 'このワールドを保存するフォルダを選択してください',
+      cancel: 'キャンセル',
+      uncategorized: '未分類',
+      savedTo: '✓ {name} を追加しました',
+      privateWorldError: '✖ プライベートワールド「{name}」はVRCフォルダに保存できません',
+      addFailed: '✖ 追加に失敗しました',
+      deletedSuccess: '✔ Chromeから削除しました',
+      deleteFailed: '✖ 削除に失敗しました',
+      vrcDeleteSuccess: '✔ VRChatから削除しました',
+      vrcDeleteNotFound: '✖ 削除ボタンが見つかりませんでした',
+      vrcDeleteNotFavorited: 'ℹ️ このワールドはVRChatのお気に入りに登録されていません',
+      worldIdNotFound: 'ワールドIDを取得できませんでした',
+      error: 'エラーが発生しました',
+      copyFailed: 'リンクのコピーに失敗しました',
+      registered: '✓ 登録済み'
+    },
+    en: {
+      extInvalidated: 'Extension context invalidated. Please reload the page.',
+      copyLink: 'Copy Link',
+      saveToChrome: 'Save to Chrome',
+      deleteFromChrome: 'Remove from Chrome',
+      deleteFromVRC: 'Delete from VRChat',
+      linkCopied: 'Copied!',
+      addedSuccess: 'Added "{name}" to Uncategorized',
+      alreadySaved: '"{name}" is already saved in "{folder}"',
+      selectFolder: '📁 Select Folder',
+      selectFolderDesc: 'Select folder to save this world',
+      cancel: 'Cancel',
+      uncategorized: 'Uncategorized',
+      savedTo: '✓ Added {name}',
+      privateWorldError: '✖ Private world "{name}" cannot be saved to VRC folder',
+      addFailed: '✖ Failed to add',
+      deletedSuccess: '✔ Removed from Chrome',
+      deleteFailed: '✖ Failed to delete',
+      vrcDeleteSuccess: '✔ Removed from VRChat',
+      vrcDeleteNotFound: '✖ Delete button not found',
+      vrcDeleteNotFavorited: 'ℹ️ This world is not in VRChat favorites',
+      worldIdNotFound: 'Failed to get world ID',
+      error: 'An error occurred',
+      copyFailed: 'Failed to copy link',
+      registered: '✓ Registered'
+    }
+  };
+
+  let currentLang = 'ja';
+
+  // 翻訳関数（動的メッセージ用）
+  function t(key, params = {}) {
+    let text = translations[currentLang][key] || key;
+    // パラメータ置換
+    Object.keys(params).forEach(param => {
+      text = text.replace(`{${param}}`, params[param]);
+    });
+    return text;
+  }
+
+  // 設定ロードと変更監視
+  async function initContentScriptSettings() {
+    try {
+      const result = await chrome.storage.sync.get('settings');
+      if (result.settings) {
+        currentLang = result.settings.language || 'ja';
+      }
+    } catch (error) {
+      console.error('[World Page] Failed to load settings:', error);
+    }
+  }
+
+  function watchSettingsChanges() {
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+      if (namespace === 'sync' && changes.settings) {
+        const newSettings = changes.settings.newValue;
+        if (newSettings.language && newSettings.language !== currentLang) {
+          currentLang = newSettings.language;
+          // 言語変更時にボタンを再作成
+          const existingPanel = document.getElementById('vrc-resolver-buttons');
+          if (existingPanel) {
+            existingPanel.remove();
+            createButtonPanel();
+          }
+        }
+      }
+    });
+  }
 
   // ==================== 設定チェック ====================
   /**
@@ -14,11 +111,9 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
 
       // enableVrcSiteIntegration が false の場合は処理を中断
       if (settings.enableVrcSiteIntegration === false) {
-        console.log('[World Page] VRC Site Integration is disabled. Script will not run.');
         return false;
       }
 
-      console.log('[World Page] VRC Site Integration is enabled.');
       return true;
     } catch (error) {
       console.error('[World Page] Failed to check settings:', error);
@@ -41,25 +136,25 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
 
   const COLORS = {
     PRIMARY: {
-      BG: 'rgba(6, 75, 92, 1)',
-      BORDER: 'rgba(6, 75, 92, 1)',
-      TEXT: 'rgba(106, 227, 249, 1)',
-      HOVER_BG: 'rgba(7, 52, 63, 1)',
-      HOVER_BORDER: 'rgba(8, 108, 132, 1)'
+      BG: 'rgba(31, 209, 237, 0.15)',
+      BORDER: 'rgba(31, 209, 237, 0.3)',
+      TEXT: '#1fd1ed',
+      HOVER_BG: 'rgba(31, 209, 237, 0.25)',
+      HOVER_BORDER: 'rgba(31, 209, 237, 0.5)'
     },
     SAVED: {
-      BG: 'rgba(92, 75, 6, 1)',
-      BORDER: 'rgba(132, 108, 8, 1)',
-      TEXT: 'rgba(249, 227, 106, 1)',
-      HOVER_BG: 'rgba(70, 57, 5, 1)',
-      HOVER_BORDER: 'rgba(150, 120, 10, 1)'
+      BG: 'rgba(249, 227, 106, 0.15)',
+      BORDER: 'rgba(249, 227, 106, 0.3)',
+      TEXT: '#f9e36a',
+      HOVER_BG: 'rgba(249, 227, 106, 0.25)',
+      HOVER_BORDER: 'rgba(249, 227, 106, 0.5)'
     },
     DANGER: {
-      BG: 'rgba(92, 6, 6, 1)',
-      BORDER: 'rgba(92, 6, 6, 1)',
-      TEXT: 'rgba(249, 106, 106, 1)',
-      HOVER_BG: 'rgba(63, 7, 7, 1)',
-      HOVER_BORDER: 'rgba(132, 8, 8, 1)'
+      BG: 'rgba(249, 106, 106, 0.15)',
+      BORDER: 'rgba(249, 106, 106, 0.3)',
+      TEXT: '#f96a6a',
+      HOVER_BG: 'rgba(249, 106, 106, 0.25)',
+      HOVER_BORDER: 'rgba(249, 106, 106, 0.5)'
     }
   };
 
@@ -82,7 +177,6 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
 
   // === Script Loaded Indicator ===
   window.vrcResolverLoaded = true;
-  console.log('[World Page] Script loaded on:', window.location.href);
 
   // === Data Loading Functions ===
   async function loadSavedWorlds() {
@@ -93,11 +187,9 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
         return;
       }
       savedWorldIds = new Set((response.worlds || []).map(w => w.id));
-      console.log('[World Page] Loaded saved worlds:', savedWorldIds.size);
     } catch (e) {
       if (e.message.includes('Extension context invalidated')) {
-        console.warn('[World Page] Extension context invalidated. Please reload the page.');
-        showNotification('拡張機能が更新されました。ページを再読み込みしてください', 'info');
+        showNotification(t('extInvalidated'), 'info');
       } else {
         console.error('[World Page] Failed to communicate with background:', e);
       }
@@ -113,10 +205,8 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
       }
       vrcFolders = response.vrcFolders || [];
       exFolders = response.folders || [];
-      console.log('[World Page] Loaded folders:', { vrcFolders, exFolders });
     } catch (e) {
       if (e.message.includes('Extension context invalidated')) {
-        console.warn('[World Page] Extension context invalidated. Please reload the page.');
       } else {
         console.error('[World Page] Failed to load folders:', e);
       }
@@ -131,10 +221,8 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
         return;
       }
       vrcWorlds = response.vrcWorlds || [];
-      console.log('[World Page] Loaded VRC worlds:', vrcWorlds.length);
     } catch (e) {
       if (e.message.includes('Extension context invalidated')) {
-        console.warn('[World Page] Extension context invalidated. Please reload the page.');
       } else {
         console.error('[World Page] Failed to load VRC worlds:', e);
       }
@@ -169,24 +257,19 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
   function createButtonPanel() {
     const worldId = getWorldIdFromUrl();
     if (!worldId) {
-      console.warn('[World Page] Could not extract world ID from URL');
       return;
     }
 
     // Prevent duplicate execution
     if (document.getElementById('vrc-resolver-buttons')) {
-      console.log('[World Page] Button panel already exists');
       return;
     }
-
-    console.log('[World Page] Creating button panel for world:', worldId);
 
     // Try to find right column and insert inline
     const rightColumn = document.querySelector(SELECTORS.RIGHT_COLUMN);
     if (rightColumn) {
       const detailsBody = rightColumn.querySelector(SELECTORS.DETAILS_BODY);
       if (detailsBody) {
-        console.log('[World Page] Found right column, inserting inline panel');
         const panel = createPanelElement(worldId);
         detailsBody.appendChild(panel);
         setupButtonEvents(worldId);
@@ -195,7 +278,6 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
     }
 
     // Fallback to floating panel
-    console.log('[World Page] Right column not found, using floating panel');
     createFloatingPanel(worldId);
   }
 
@@ -248,7 +330,7 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
       gap: 8px;
     ">
       <span>🔗</span>
-      <span>リンクをコピー</span>
+      <span>${t('copyLink')}</span>
     </button>
     
     <button id="ext-save-btn" style="
@@ -268,7 +350,7 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
       gap: 8px;
     ">
       <span>${isSaved ? '☑' : '☐'}</span>
-      <span>${isSaved ? 'Chromeから削除' : 'Chromeに保存'}</span>
+      <span>${isSaved ? t('deleteFromChrome') : t('saveToChrome')}</span>
     </button>
     
     <button id="vrc-delete-btn" style="
@@ -290,7 +372,7 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
       pointer-events: ${isVRCDeleteDisabled ? 'none' : 'auto'};
     ">
       <span>🗑️</span>
-      <span>VRChatから削除</span>
+      <span>${t('deleteFromVRC')}</span>
     </button>
   `;
 
@@ -321,13 +403,13 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
       const url = `https://vrchat.com/home/world/${worldId}`;
       navigator.clipboard.writeText(url).then(() => {
         const originalHTML = copyBtn.innerHTML;
-        copyBtn.innerHTML = '<span>✓</span><span>コピーしました!</span>';
+        copyBtn.innerHTML = `<span>✓</span><span>${t('linkCopied')}</span>`;
         setTimeout(() => {
           copyBtn.innerHTML = originalHTML;
         }, 2000);
       }).catch(err => {
         console.error('[World Page] Failed to copy:', err);
-        showNotification('リンクのコピーに失敗しました', 'error');
+        showNotification(t('copyFailed'), 'error');
       });
     };
   }
@@ -392,8 +474,8 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
   // === Folder Selection Modal ===
   function showFolderSelectModal(options) {
     const {
-      title = '📁 フォルダを選択',
-      description = '対象のフォルダを選択してください:',
+      title = t('selectFolder'),
+      description = t('selectFolderDesc'),
       folders = [],
       onConfirm = () => { },
       onCancel = () => { },
@@ -422,7 +504,7 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
     </p>
     ${currentFolderId ? `
       <p style="color: #67d781; margin: 0 0 12px 0; font-size: 12px; background: rgba(103, 215, 129, 0.1); padding: 8px; border-radius: 4px;">
-        ✓ 現在「${folders.find(f => f.id === currentFolderId)?.name || currentFolderId}」に登録済み
+        ${t('registered')} 「${folders.find(f => f.id === currentFolderId)?.name || currentFolderId}」
       </p>
     ` : ''}
     <div id="folder-select-list" style="
@@ -443,7 +525,7 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
         color: #aaa;
         cursor: pointer;
         transition: all 0.2s;
-      ">キャンセル</button>
+      ">${t('cancel')}</button>
     </div>
   `;
 
@@ -458,7 +540,7 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
         folder.name,
         index === 0,
         folder.class || '',
-        isCurrentFolder ? '✓ 登録済み' : null
+        isCurrentFolder ? t('registered').split(' ')[0] : null
       );
       folderList.appendChild(option);
     });
@@ -503,14 +585,14 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
 
   function showExtFolderModal(worldId) {
     const folders = [
-      { id: 'none', name: '未分類', class: 'none' },
+      { id: 'none', name: t('uncategorized'), class: 'none' },
       ...exFolders.map(f => ({ id: f.id, name: f.name, class: '' })),
       ...vrcFolders.map(f => ({ id: f.id, name: f.displayName, class: 'vrc' }))
     ];
 
     showFolderSelectModal({
-      title: '📁 フォルダを選択',
-      description: 'このワールドを保存するフォルダを選択してください',
+      title: t('selectFolder'),
+      description: t('selectFolderDesc'),
       folders: folders,
       onConfirm: (folderId) => {
         addToExtension(worldId, folderId);
@@ -610,7 +692,6 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
 
   // === World Management Functions ===
   async function addToExtension(worldId, folderId) {
-    console.log(`[World Page] Adding ${worldId} to extension folder ${folderId}...`);
     const worldName = getWorldName() || worldId;
 
     try {
@@ -635,7 +716,6 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
             thumbnailImageUrl: apiData.thumbnailImageUrl || null,
             folderId: folderId
           };
-          console.log('[World Page] Fetched world details from API:', worldData);
         }
       } catch (apiError) {
         console.warn('[World Page] Failed to fetch world details, using basic info:', apiError);
@@ -648,23 +728,23 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
 
       if (response.success) {
         savedWorldIds.add(worldId);
-        showNotification(`✓ ${worldData.name} を追加しました`, 'success');
+        showNotification(t('savedTo', { name: worldData.name }), 'success');
         updateExtButton(worldId, true);
       } else if (response.reason === 'already_exists') {
-        showNotification('ℹ️ このワールドは既に保存されています', 'info');
+        showNotification(t('alreadySaved', { name: worldData.name, folder: '' }), 'info');
         savedWorldIds.add(worldId);
         updateExtButton(worldId, true);
       } else if (response.reason === 'private_world') {
-        showNotification(`✖ プライベートワールド「${response.worldName}」はVRCフォルダに保存できません`, 'error');
+        showNotification(t('privateWorldError', { name: response.worldName || worldData.name }), 'error');
       } else {
-        showNotification('✖ 追加に失敗しました', 'error');
+        showNotification(t('addFailed'), 'error');
       }
     } catch (error) {
       console.error('[World Page] Failed to add to extension:', error);
       if (error.message.includes('Extension context invalidated')) {
-        showNotification('拡張機能が更新されました。ページを再読み込みしてください', 'info');
+        showNotification(t('extInvalidated'), 'info');
       } else {
-        showNotification(`✖ エラー: ${error.message}`, 'error');
+        showNotification(t('error'), 'error');
       }
     }
   }
@@ -674,14 +754,12 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
       return;
     }
 
-    console.log(`[World Page] Deleting ${worldId} from extension...`);
-
     try {
       const response = await chrome.runtime.sendMessage({ type: 'getAllWorlds' });
       const world = (response.worlds || []).find(w => w.id === worldId);
 
       if (!world) {
-        showNotification('✖ ワールド情報が見つかりません', 'error');
+        showNotification(t('deleteFailed'), 'error');
         return;
       }
 
@@ -693,30 +771,28 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
 
       if (deleteResponse.success) {
         savedWorldIds.delete(worldId);
-        showNotification('✓ Chromeから削除しました', 'success');
+        showNotification(t('deletedSuccess'), 'success');
         updateExtButton(worldId, false);
       } else {
-        showNotification('✖ 削除に失敗しました', 'error');
+        showNotification(t('deleteFailed'), 'error');
       }
     } catch (error) {
       console.error('[World Page] Failed to delete from extension:', error);
       if (error.message.includes('Extension context invalidated')) {
-        showNotification('拡張機能が更新されました。ページを再読み込みしてください', 'info');
+        showNotification(t('extInvalidated'), 'info');
       } else {
-        showNotification(`✖ エラー: ${error.message}`, 'error');
+        showNotification(t('error'), 'error');
       }
     }
   }
 
   async function deleteFromVRChat(worldId) {
-    console.log(`[World Page] Attempting to delete ${worldId} from VRChat favorites...`);
-
     const removeFavButton = Array.from(document.querySelectorAll('div[role="button"]'))
       .find(btn => btn.textContent.includes('Remove Favorite'));
 
     if (removeFavButton) {
       removeFavButton.click();
-      showNotification('✓ VRChatから削除しました', 'success');
+      showNotification(t('vrcDeleteSuccess'), 'success');
 
       setTimeout(async () => {
         try {
@@ -735,7 +811,6 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
           }
         } catch (error) {
           if (error.message.includes('Extension context invalidated')) {
-            console.warn('[World Page] Extension context invalidated during sync');
           } else {
             console.error('[World Page] Failed to sync deletion:', error);
           }
@@ -744,9 +819,9 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
     } else {
       const vrcWorld = vrcWorlds.find(w => w.id === worldId);
       if (vrcWorld) {
-        showNotification('✖ 削除ボタンが見つかりませんでした', 'error');
+        showNotification(t('vrcDeleteNotFound'), 'error');
       } else {
-        showNotification('ℹ️ このワールドはVRChatのお気に入りに登録されていません', 'info');
+        showNotification(t('vrcDeleteNotFavorited'), 'info');
       }
     }
   }
@@ -763,7 +838,7 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
       checkSpan.textContent = isSaved ? '☑' : '☐';
     }
     if (textSpan) {
-      textSpan.textContent = isSaved ? 'Chromeから削除' : 'Chromeに保存';
+      textSpan.textContent = isSaved ? t('deleteFromChrome') : t('saveToChrome');
     }
 
     // Update colors
@@ -818,8 +893,6 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
 
   // === Element Waiting with Right Column Monitoring ===
   function monitorRightColumnAndMigrate(worldId, floatingPanel) {
-    console.log('[World Page] Starting right column monitor for migration...');
-
     let hasTriggered = false;
 
     // Setup MutationObserver to watch for right column
@@ -845,7 +918,6 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
             console.warn('[World Page] Failed to disconnect observer:', e);
           }
           clearTimeout(timer);
-          console.log('[World Page] Right column appeared, migrating panel...');
 
           // Remove floating panel
           if (floatingPanel && floatingPanel.parentNode) {
@@ -876,7 +948,6 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
             console.warn('[World Page] Failed to disconnect observer on timeout:', e);
           }
         }
-        console.log('[World Page] Right column monitor timeout, keeping floating panel');
       }
     }, TIMEOUTS.ELEMENT_WAIT);
   }
@@ -891,7 +962,6 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
       const currentUrl = location.href;
       if (currentUrl !== lastUrl) {
         lastUrl = currentUrl;
-        console.log('[World Page] URL changed (polling):', currentUrl);
         handleUrlChange();
       }
     }, TIMEOUTS.URL_CHECK_INTERVAL);
@@ -901,7 +971,6 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
     const currentUrl = location.href;
     if (currentUrl !== lastUrl) {
       lastUrl = currentUrl;
-      console.log('[World Page] URL changed (mutation):', currentUrl);
       handleUrlChange();
     }
   });
@@ -909,7 +978,6 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
   function handleUrlChange() {
     const existingPanel = document.getElementById('vrc-resolver-buttons');
     if (existingPanel) {
-      console.log('[World Page] Removing existing panel');
       existingPanel.remove();
     }
 
@@ -924,7 +992,6 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
     }
 
     setTimeout(() => {
-      console.log('[World Page] Reinitializing after URL change');
       init();
     }, TIMEOUTS.URL_CHANGE_DELAY);
   }
@@ -932,29 +999,27 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
   // === Initialization ===
   async function init() {
     if (!isTargetPage()) {
-      console.log('[World Page] Not a target page, skipping');
       return;
     }
+    
     // 設定チェック: VRCサイト連携が無効の場合は処理を中断
     const isEnabled = await checkExtensionSettings();
     if (!isEnabled) {
-      console.log('[World Page] Script execution stopped by settings.');
       return;
     }
 
+    // 言語設定をロード
+    await initContentScriptSettings();
+    watchSettingsChanges();
 
     if (document.getElementById('vrc-resolver-buttons')) {
-      console.log('[World Page] Button panel already exists');
       return;
     }
 
     const worldId = getWorldIdFromUrl();
     if (!worldId) {
-      console.log('[World Page] Could not extract world ID');
       return;
     }
-
-    console.log('[World Page] Initializing for world:', worldId);
 
     await loadSavedWorlds();
     await loadFolders();
@@ -965,14 +1030,12 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
     if (rightColumn) {
       const detailsBody = rightColumn.querySelector(SELECTORS.DETAILS_BODY);
       if (detailsBody) {
-        console.log('[World Page] Right column found, creating inline panel');
         createButtonPanel();
         return;
       }
     }
 
     // Create floating panel immediately
-    console.log('[World Page] Creating floating panel immediately');
     createFloatingPanel(worldId);
 
     // Start monitoring for right column to migrate panel
@@ -983,12 +1046,10 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
   // === Initial Execution ===
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-      console.log('[World Page] DOMContentLoaded');
       init();
       startUrlMonitoring();
     });
   } else {
-    console.log('[World Page] Document already loaded');
     init();
     startUrlMonitoring();
   }
@@ -1024,7 +1085,5 @@ console.log("[VRC Resolver] World Page Script v1.1.0");
   }
 `;
   document.head.appendChild(style);
-
-  console.log("[World Page] Script ready");
 
 })();

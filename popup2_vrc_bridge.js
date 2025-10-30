@@ -1,8 +1,7 @@
 // ========================================
-// popup2_vrc_bridge.js
+// popup2_vrc_bridge.js v1.2.0
 // ========================================
 
-// 翻訳データ (popup_core.js のデータと統合)
 const translations = {
   ja: {
     'bridgeTitle': 'VRChat公式連携ブリッジ',
@@ -26,8 +25,8 @@ const translations = {
     'autoCloseIn': '{seconds}秒後に自動的に閉じます',
     'manualClose': '(クリックで手動終了)',
     'unknownError': '不明なエラーが発生しました',
+    'actionCancelled': '✗ 処理がキャンセルされました',
 
-    // 🔥 VRChat同期 (EXPORT/REFLECT) 関連の進捗メッセージキー
     'phase0_fetchingGroups': 'VRCフォルダ情報を取得中...',
     'phase0_fetchingVRCStatus': 'VRC側の現在状態を取得中...',
     'phase0_fetchingFolder': 'フォルダ「{name}」を確認中...',
@@ -44,7 +43,6 @@ const translations = {
     'phase4_complete': '同期完了',
     'sync_start': '同期処理を開始...',
 
-    // 🔥 VRChat取得 (FETCH) 関連の進捗メッセージキー
     'fetch_phase0_fetchingGroups': 'VRCフォルダ情報を取得中...',
     'fetch_phase0_groupsComplete': 'VRCフォルダ情報取得完了',
     'fetch_phase1_fetchingFolder': 'フォルダ「{name}」を取得中...',
@@ -78,8 +76,8 @@ const translations = {
     'autoCloseIn': 'Auto-closing in {seconds} seconds',
     'manualClose': '(Click to close manually)',
     'unknownError': 'An unknown error occurred',
+    'actionCancelled': '✗ Process was cancelled',
 
-    // 🔥 VRChat同期 (EXPORT/REFLECT) 関連の進捗メッセージキー
     'phase0_fetchingGroups': 'Fetching VRC folder information...',
     'phase0_fetchingVRCStatus': 'Fetching current VRC status...',
     'phase0_fetchingFolder': 'Checking folder "{name}"...',
@@ -96,7 +94,6 @@ const translations = {
     'phase4_complete': 'Sync completed',
     'sync_start': 'Starting sync process...',
 
-    // 🔥 VRChat取得 (FETCH) 関連の進捗メッセージキー
     'fetch_phase0_fetchingGroups': 'Fetching VRC folder information...',
     'fetch_phase0_groupsComplete': 'VRC folder information fetched',
     'fetch_phase1_fetchingFolder': 'Fetching folder "{name}"...',
@@ -112,27 +109,14 @@ const translations = {
 
 let currentSettings = { theme: 'dark', language: 'ja' };
 
-// 簡易翻訳関数
 function t(key, params = {}) {
   const lang = currentSettings.language || 'ja';
   const dict = translations[lang] || translations['ja'];
   
-  // 1. 指定された言語の辞書から翻訳を取得
   let translatedText = dict[key];
   
-  // 2. 翻訳が見つからなかった場合、かつ現在の言語が日本語でない場合、
-  //    日本語キー（元のメッセージ）が英語辞書にキーとして登録されているか確認し、翻訳を取得
-  // 🔥 修正: 日本語キーではなく、英語辞書にキー自体が登録されているか確認。
-  //          ここでは、翻訳キー（例: 'phase1_removing'）が、現在の言語辞書に見つからなかった場合、
-  //          デフォルトの日本語辞書も確認するロジックは削除し、キーが見つからなければキーをそのまま返す。
-  //          メッセージキー方式では、キーは 'phase1_removing' のような英語ベースの識別子であるため、
-  //          keyが日本語の文字列であるという前提はここでは持たない。
-  //          よって、元のコードのステップ2は不要で、ステップ3に直行。
-  
-  // 3. それでも翻訳が見つからなければ、キー自体をそのまま使用（通常は日本語メッセージ）
   if (!translatedText) translatedText = key;
 
-  // 4. パラメータの置換
   Object.keys(params).forEach(param => {
     const placeholder = `{${param}}`;
     translatedText = translatedText.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), params[param]);
@@ -141,7 +125,6 @@ function t(key, params = {}) {
   return translatedText;
 }
 
-// 翻訳適用
 function applyLanguage() {
   document.title = t('bridgeTitle');
   const map = {
@@ -158,7 +141,6 @@ function applyLanguage() {
   }
 }
 
-// テーマ適用
 function applyTheme() {
   const body = document.body;
   if (currentSettings.theme === 'light') {
@@ -170,7 +152,6 @@ function applyTheme() {
   }
 }
 
-// 設定読み込み
 async function loadSettings() {
   try {
     const items = await chrome.storage.sync.get(['settings']);
@@ -187,12 +168,20 @@ async function loadSettings() {
   applyLanguage();
 }
 
-// グローバル変数
 let FETCH_BUTTON, REFLECT_BUTTON, STATUS_MESSAGE, PROGRESS_FILL, ERROR_MESSAGE, ALERT_MESSAGE;
 let bridgeWindowId = null;
 let autoCloseTimer = null;
 
-// DOMContentLoaded
+window.addEventListener('beforeunload', () => {
+  if (bridgeWindowId !== null) {
+    console.log('[Bridge] Window closing, sending cancel request');
+    chrome.runtime.sendMessage({
+      type: 'CANCEL_VRC_ACTION',
+      windowId: bridgeWindowId
+    });
+  }
+});
+
 document.addEventListener('DOMContentLoaded', async () => {
   await loadSettings();
   FETCH_BUTTON = document.getElementById('fetch-button');
@@ -227,14 +216,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('[Bridge] Received message:', request.action, request);
     switch (request.action) {
       case 'VRC_ACTION_PROGRESS':
-        // 🔥 進捗ログの翻訳対応: request.messageが翻訳キーとして送られてきた場合、現在の言語に翻訳します。
-        // requestオブジェクトの残りのプロパティはt関数のparamsとしてそのまま使用されます。
-        const translatedMessage = t(request.message, request); 
+        const translatedMessage = t(request.message, request);
         updateStatus(translatedMessage, false);
         updateProgress(request.percent || 0);
         break;
       case 'VRC_ACTION_COMPLETE':
-        handleComplete(request.result || {});
+        handleComplete(request);
         break;
       case 'VRC_ACTION_ERROR':
         handleError(request.error || t('unknownError'));
@@ -246,11 +233,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 });
 
-/**
- * 🔥 VRChat連携アクションを開始
- */
 function startVrcAction(type) {
   console.log('[Bridge] Starting action:', type);
+  
+  // 🔥 カウントダウン中断処理を追加
+  if (autoCloseTimer) {
+    clearTimeout(autoCloseTimer);
+    autoCloseTimer = null;
+    console.log('[Bridge] Auto-close countdown cancelled');
+  }
+  
   setUIBusy(true);
   const messageKey = type === 'FETCH' ? 'actionStartFetch' : 'actionStartReflect';
   updateStatus(t(messageKey), false);
@@ -275,7 +267,6 @@ function startVrcAction(type) {
   });
 }
 
-/** 🔥 UIの状態を更新 */
 function setUIBusy(isBusy) {
   FETCH_BUTTON.disabled = isBusy;
   REFLECT_BUTTON.disabled = isBusy;
@@ -286,7 +277,6 @@ function setUIBusy(isBusy) {
   }
 }
 
-/** 🔥 ステータスメッセージを更新 */
 function updateStatus(message, isError, errorDetails = '') {
   STATUS_MESSAGE.textContent = message;
   STATUS_MESSAGE.style.color = isError ? 'var(--error)' : 'var(--text-primary)';
@@ -298,7 +288,6 @@ function updateStatus(message, isError, errorDetails = '') {
   }
 }
 
-/** 🔥 プログレスバーを更新 */
 function updateProgress(percent) {
   const clamped = Math.max(0, Math.min(100, percent));
   PROGRESS_FILL.style.width = clamped + '%';
@@ -307,19 +296,24 @@ function updateProgress(percent) {
   else PROGRESS_FILL.classList.remove('complete');
 }
 
-/** 🔥 処理完了時の処理 */
 function handleComplete(result) {
   console.log('[Bridge] Action completed:', result);
   setUIBusy(false);
   updateProgress(100);
 
+  if (result.cancelled) {
+    updateStatus(t('actionCancelled'), true);
+    scheduleAutoClose();
+    return;
+  }
+
   let message = t('actionComplete');
-  if (result.addedCount !== undefined && result.removedCount === undefined) { // FETCH
+  if (result.addedCount !== undefined && result.removedCount === undefined) {
     message = t('fetchComplete', {
       addedCount: result.addedCount || 0,
       movedCount: result.movedCount || 0
     });
-  } else if (result.removedCount !== undefined) { // REFLECT
+  } else if (result.removedCount !== undefined) {
     message = t('reflectComplete', {
       removedCount: result.removedCount || 0,
       movedCount: result.movedCount || 0,
@@ -328,10 +322,23 @@ function handleComplete(result) {
   }
 
   updateStatus(message, false);
+  
+  // 🔥 popup.htmlに同期完了通知を送信
+  chrome.runtime.sendMessage({
+    type: 'VRC_SYNC_COMPLETED',
+    actionType: result.actionType || 'UNKNOWN', // 'FETCH' or 'REFLECT'
+    addedCount: result.addedCount || 0,
+    movedCount: result.movedCount || 0,
+    removedCount: result.removedCount || 0
+  }).catch(err => {
+    console.warn('[Bridge] Failed to notify popup:', err);
+  });
+  
+  console.log('[Bridge] Sent VRC_SYNC_COMPLETED notification to popup.html');
+  
   scheduleAutoClose();
 }
 
-/** 🔥 エラー発生時の処理 */
 function handleError(error) {
   console.error('[Bridge] Action error:', error);
   setUIBusy(false);
@@ -339,7 +346,6 @@ function handleError(error) {
   updateStatus(t('actionError'), true, error);
 }
 
-/** 🔥 自動クローズをスケジュール */
 function scheduleAutoClose() {
   let countdown = 5;
   const updateCountdown = () => {
@@ -366,7 +372,6 @@ function scheduleAutoClose() {
   updateCountdown();
 }
 
-/** 🔥 ウィンドウを閉じる */
 function closeWindow() {
   if (autoCloseTimer) {
     clearTimeout(autoCloseTimer);

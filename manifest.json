@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "VRChat Favorite Worlds Manager",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "VRChatのワールドを公式と連携しながらお気に入り登録・整理するためのファイルマネージャ",
   "permissions": [
     "storage",

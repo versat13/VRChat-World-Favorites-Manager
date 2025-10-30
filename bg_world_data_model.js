@@ -1,12 +1,11 @@
-// bg_world_data_model.js
+// bg_world_data_model.js v1.2.0
 console.log('[WorldDataModel] Loaded');
 
 // ========================================
-// 内部ヘルパー（エクスポート用）
+// 内部ヘルパー(エクスポート用)
 // ========================================
 
 async function getAllWorldsInternal() {
-  // 分割保存されたworlds配列を読み込み
   const syncWorlds = await loadWorldsChunked();
   
   const local = await chrome.storage.local.get(['vrcWorlds']);
@@ -25,9 +24,6 @@ async function getAllWorldsInternal() {
   return [...syncWorldsWithDetails, ...vrcWorlds];
 }
 
-/**
- * 単一ワールドの詳細をVRChat APIから取得（background.js用）
- */
 async function getSingleWorldDetailsInternal(worldId) {
   try {
     const response = await fetch(`${API_BASE}/worlds/${worldId}`, {
@@ -67,18 +63,17 @@ async function addWorldToFolder(world) {
     const folderId = world.folderId;
 
     if (folderId.startsWith('worlds')) {
-      // VRCフォルダへの追加
       if (world.releaseStatus === 'private' || world.releaseStatus === 'deleted') {
-        return { success: false, reason: 'private_world', worldName: world.name };
+        return createPrivateWorldError(world.name);
       }
 
       const vrcWorlds = await getVRCFolderWorlds(folderId);
 
       if (vrcWorlds.length >= VRC_FOLDER_SYNC_LIMIT) {
-        return { success: false, reason: 'vrc_sync_limit_exceeded' };
+        return createLimitError('vrc_sync_limit');
       }
       if (vrcWorlds.length >= VRC_FOLDER_LIMIT) {
-        return { success: false, reason: 'vrc_limit_exceeded' };
+        return createLimitError('vrc_limit');
       }
 
       const local = await chrome.storage.local.get(['vrcWorlds']);
@@ -95,15 +90,12 @@ async function addWorldToFolder(world) {
       await chrome.storage.local.set({ vrcWorlds: vrcWorldsList });
 
     } else {
-      // カスタムフォルダへの追加
       const syncWorlds = await loadWorldsChunked();
 
-      // 件数チェック
       if (syncWorlds.length >= SYNC_WORLD_LIMIT) {
-        return { success: false, reason: 'sync_limit_exceeded' };
+        return createLimitError('sync_limit');
       }
 
-      // バイト数チェック（追加前に確認）
       const sync = await chrome.storage.sync.get(['folders', 'vrcFolderData']);
       const testData = {
         worlds: [...syncWorlds, { id: world.id, folderId: folderId }],
@@ -114,24 +106,20 @@ async function addWorldToFolder(world) {
       const estimatedBytes = JSON.stringify(testData).length;
       const currentBytes = await chrome.storage.sync.getBytesInUse();
       
-      // 安全マージン: 95%まで (102,400 * 0.95 = 97,280)
       const SAFE_LIMIT = chrome.storage.sync.QUOTA_BYTES * 0.95;
       
       if (estimatedBytes > SAFE_LIMIT || currentBytes > SAFE_LIMIT) {
         logError('SYNC_BYTES_EXCEEDED', `Current: ${currentBytes}, Estimated: ${estimatedBytes}, Limit: ${SAFE_LIMIT}`);
-        return { 
-          success: false, 
-          reason: 'sync_bytes_exceeded',
+        return createLimitError('sync_bytes', {
           currentBytes: currentBytes,
           estimatedBytes: estimatedBytes,
           limit: SAFE_LIMIT
-        };
+        });
       }
 
       syncWorlds.push({ id: world.id, folderId: folderId });
       await saveWorldsChunked(syncWorlds);
 
-      // 詳細情報を保存
       await saveWorldDetails(world.id, {
         name: world.name,
         authorName: world.authorName || null,
@@ -140,17 +128,12 @@ async function addWorldToFolder(world) {
       });
     }
 
-    return { success: true };
+    return createSuccessResponse();
   } catch (error) {
-    // ストレージ書き込みエラーもキャッチ
     if (error.message && error.message.includes('QUOTA_BYTES')) {
-      return { 
-        success: false, 
-        reason: 'sync_quota_error',
-        error: error.message 
-      };
+      return createLimitError('sync_bytes', { error: error.message });
     }
-    return { success: false, error: error.message };
+    return createGenericError(error.message);
   }
 }
 
@@ -161,13 +144,12 @@ async function removeWorldFromFolder(worldId, folderId) {
       const vrcWorlds = (local.vrcWorlds || []).filter(w => w.id !== worldId);
       await chrome.storage.local.set({ vrcWorlds });
     } else {
-      // 分割保存から削除
       await removeWorldFromChunkedStorage(worldId);
       await deleteWorldDetails(worldId);
     }
-    return { success: true };
+    return createSuccessResponse();
   } catch (error) {
-    return { success: false, error: error.message };
+    return createGenericError(error.message);
   }
 }
 
@@ -198,7 +180,7 @@ async function getVRCWorlds(sendResponse) {
 async function addWorld(world, sendResponse) {
   try {
     if (!world || !world.id || !world.name) {
-      sendResponse({ success: false, error: 'Invalid world data' });
+      sendResponse(createGenericError('Invalid world data', 'invalid_data'));
       return;
     }
 
@@ -211,12 +193,7 @@ async function addWorld(world, sendResponse) {
         sendResponse({ success: false, reason: 'already_exists_same_folder' });
         return;
       }
-      sendResponse({
-        success: false,
-        reason: 'already_exists_different_folder',
-        existingFolder: existing.folderId,
-        worldName: world.name
-      });
+      sendResponse(createAlreadyExistsError(existing.folderId, world.name));
       return;
     }
 
@@ -227,13 +204,13 @@ async function addWorld(world, sendResponse) {
 
     if (addResult.success) {
       logAction('WORLD_ADDED', { worldId: world.id, folderId });
-      sendResponse({ success: true });
+      sendResponse(createSuccessResponse());
     } else {
       sendResponse(addResult);
     }
   } catch (error) {
     logError('ADD_WORLD', error);
-    sendResponse({ success: false, error: error.message });
+    sendResponse(createGenericError(error.message));
   }
 }
 
@@ -243,20 +220,20 @@ async function removeWorld(worldId, folderId, sendResponse) {
 
     if (removeResult.success) {
       logAction('WORLD_REMOVED', { worldId, folderId });
-      sendResponse({ success: true });
+      sendResponse(createSuccessResponse());
     } else {
       sendResponse(removeResult);
     }
   } catch (error) {
     logError('REMOVE_WORLD', error);
-    sendResponse({ success: false, error: error.message });
+    sendResponse(createGenericError(error.message));
   }
 }
 
 async function updateWorld(world, sendResponse) {
   try {
     if (!world || !world.id) {
-      sendResponse({ success: false, error: 'Invalid world data' });
+      sendResponse(createGenericError('Invalid world data', 'invalid_data'));
       return;
     }
 
@@ -289,10 +266,10 @@ async function updateWorld(world, sendResponse) {
     }
 
     logAction('WORLD_UPDATED', { worldId: world.id });
-    sendResponse({ success: true });
+    sendResponse(createSuccessResponse());
   } catch (error) {
     logError('UPDATE_WORLD', error);
-    sendResponse({ success: false, error: error.message });
+    sendResponse(createGenericError(error.message));
   }
 }
 
@@ -301,7 +278,7 @@ async function moveWorld(worldId, fromFolder, toFolder, newFavoriteRecordId, sen
 
   try {
     if (fromFolder === toFolder) {
-      sendResponse({ success: true });
+      sendResponse(createSuccessResponse());
       return;
     }
 
@@ -311,11 +288,11 @@ async function moveWorld(worldId, fromFolder, toFolder, newFavoriteRecordId, sen
     if (!world) {
       world = allWorlds.find(w => w.id === worldId);
       if (world && world.folderId === toFolder) {
-         sendResponse({ success: true });
+         sendResponse(createSuccessResponse());
          return;
       }
       logError('MOVE_WORLD_NOT_FOUND', 'World not found in source folder', { worldId, fromFolder });
-      sendResponse({ success: false, error: 'World not found in source folder' });
+      sendResponse(createGenericError('World not found in source folder', 'not_found'));
       return;
     }
 
@@ -337,22 +314,15 @@ async function moveWorld(worldId, fromFolder, toFolder, newFavoriteRecordId, sen
     }
 
     logAction('MOVE_WORLD_SUCCESS', { worldId, fromFolder, toFolder });
-    sendResponse({ success: true });
+    sendResponse(createSuccessResponse());
   } catch (error) {
     logError('MOVE_WORLD_ERROR', error, { worldId, fromFolder, toFolder });
-    sendResponse({ success: false, error: error.message });
+    sendResponse(createGenericError(error.message));
   }
 }
 
 // ========================================
 // ワールドCRUD (バッチ)
-// ========================================
-
-// bg_world_data_model.js (修正版 - batchUpdateWorlds関連のみ)
-// 他の関数は元のファイルと同じ
-
-// ========================================
-// ワールドCRUD (バッチ) - 🔥 完全修正版
 // ========================================
 
 async function batchUpdateWorlds(changes, sendResponse) {
@@ -366,7 +336,7 @@ async function batchUpdateWorlds(changes, sendResponse) {
 
     if (movedWorlds.length === 0 && deletedWorlds.length === 0) {
       logBatch('EMPTY', 'No changes');
-      sendResponse({ success: true, movedCount: 0, deletedCount: 0 });
+      sendResponse(createSuccessResponse({ movedCount: 0, deletedCount: 0 }));
       return;
     }
 
@@ -382,14 +352,12 @@ async function batchUpdateWorlds(changes, sendResponse) {
 
     logBatch('CLASSIFIED', { totalChanges: allChanges.length });
 
-    // 統合バッチ処理(50件ずつ)
     for (let i = 0; i < allChanges.length; i += BATCH_SIZE.sync) {
       const batch = allChanges.slice(i, i + BATCH_SIZE.sync);
       logBatch('UNIFIED_BATCH', { batch: i / BATCH_SIZE.sync + 1, size: batch.length });
 
       const result = await processUnifiedBatch(batch);
       
-      // 🔥 FIX: タイプ別に成功数をカウント
       movedSuccessCount += result.movedSuccess || 0;
       deletedSuccessCount += result.deletedSuccess || 0;
       errorCount += result.errors || 0;
@@ -407,7 +375,6 @@ async function batchUpdateWorlds(changes, sendResponse) {
       errorCount 
     });
 
-    // 🔥 FIX: 正確なカウントを返す
     sendResponse({
       success: errorCount === 0,
       movedCount: movedSuccessCount,
@@ -417,21 +384,14 @@ async function batchUpdateWorlds(changes, sendResponse) {
     });
   } catch (error) {
     logError('BATCH_UPDATE_ERROR', error);
-    sendResponse({ 
-      success: false, 
-      error: error.message,
-      movedCount: 0,
-      deletedCount: 0
-    });
+    sendResponse(createGenericError(error.message));
   }
 }
 
-// バッチ処理のコアロジック - 🔥 完全修正版
 async function processUnifiedBatch(batch) {
   logBatch('UNIFIED_BATCH_START', { size: batch.length });
 
   try {
-    // 分割保存から読み込み
     let syncWorlds = await loadWorldsChunked();
     
     const local = await chrome.storage.local.get(['vrcWorlds']);
@@ -443,12 +403,10 @@ async function processUnifiedBatch(batch) {
     let syncModified = false;
     let vrcModified = false;
 
-    // 事前に制限チェック(移動先ごとにカウント)
     const moveToSync = batch.filter(c => c.type === 'move' && c.fromFolder.startsWith('worlds') && !c.toFolder.startsWith('worlds'));
     const moveToVRC = batch.filter(c => c.type === 'move' && !c.fromFolder.startsWith('worlds') && c.toFolder.startsWith('worlds'));
     const deleteFromSync = batch.filter(c => c.type === 'delete' && !c.folderId.startsWith('worlds'));
     
-    // Sync容量チェック
     const syncAfterDelete = syncWorlds.length - deleteFromSync.length;
     const syncAfterMove = syncAfterDelete + moveToSync.length - moveToVRC.length;
     
@@ -463,7 +421,6 @@ async function processUnifiedBatch(batch) {
       };
     }
     
-    // VRCフォルダごとの容量チェック
     const vrcFolderCounts = {};
     vrcWorlds.forEach(w => {
       vrcFolderCounts[w.folderId] = (vrcFolderCounts[w.folderId] || 0) + 1;
@@ -491,62 +448,51 @@ async function processUnifiedBatch(batch) {
       }
     }
 
-    // 実際の処理
     for (const change of batch) {
       try {
         if (change.type === 'delete') {
-          // 🔥 削除処理
           const fromIsVRC = change.folderId.startsWith('worlds');
 
           if (fromIsVRC) {
             const beforeLength = vrcWorlds.length;
             vrcWorlds = vrcWorlds.filter(w => w.id !== change.worldId);
             if (vrcWorlds.length < beforeLength) {
-              deletedSuccessCount++; // 🔥 削除成功
+              deletedSuccessCount++;
               vrcModified = true;
               logAction('DELETE_SUCCESS_VRC', { worldId: change.worldId });
             } else {
-              errorMessages.push(`${change.worldId}: Not found in VRC`);
-              logError('DELETE_NOT_FOUND_VRC', change.worldId);
+              logAction('DELETE_ALREADY_REMOVED_VRC', { worldId: change.worldId });
             }
           } else {
             const beforeLength = syncWorlds.length;
             syncWorlds = syncWorlds.filter(w => w.id !== change.worldId);
             if (syncWorlds.length < beforeLength) {
               await deleteWorldDetails(change.worldId);
-              deletedSuccessCount++; // 🔥 削除成功
+              deletedSuccessCount++;
               syncModified = true;
               logAction('DELETE_SUCCESS_SYNC', { worldId: change.worldId });
             } else {
-              errorMessages.push(`${change.worldId}: Not found in sync`);
-              logError('DELETE_NOT_FOUND_SYNC', change.worldId);
+              logAction('DELETE_ALREADY_REMOVED_SYNC', { worldId: change.worldId });
             }
           }
 
         } else if (change.type === 'move') {
-          // 🔥 移動処理
           const fromIsVRC = change.fromFolder.startsWith('worlds');
           const toIsVRC = change.toFolder.startsWith('worlds');
 
           if (fromIsVRC && toIsVRC) {
-            // VRC → VRC
             const index = vrcWorlds.findIndex(w => w.id === change.worldId);
             if (index !== -1) {
               vrcWorlds[index].folderId = change.toFolder;
-              movedSuccessCount++; // 🔥 移動成功
+              movedSuccessCount++;
               vrcModified = true;
-              logAction('MOVE_SUCCESS_VRC_TO_VRC', { 
-                worldId: change.worldId, 
-                from: change.fromFolder, 
-                to: change.toFolder 
-              });
+              logAction('MOVE_SUCCESS_VRC_TO_VRC', { worldId: change.worldId, from: change.fromFolder, to: change.toFolder });
             } else {
-              errorMessages.push(`${change.worldId}: VRC->VRC Not found`);
+              errorMessages.push(`${change.worldId}: VRC->VRC 移動元が見つかりません`);
               logError('MOVE_NOT_FOUND_VRC_TO_VRC', change.worldId);
             }
 
           } else if (fromIsVRC && !toIsVRC) {
-            // VRC → Sync
             const vrcIndex = vrcWorlds.findIndex(w => w.id === change.worldId);
             if (vrcIndex !== -1) {
               const vrcWorld = vrcWorlds.splice(vrcIndex, 1)[0];
@@ -557,21 +503,16 @@ async function processUnifiedBatch(batch) {
                 releaseStatus: vrcWorld.releaseStatus,
                 thumbnailImageUrl: vrcWorld.thumbnailImageUrl
               });
-              movedSuccessCount++; // 🔥 移動成功
+              movedSuccessCount++;
               vrcModified = true;
               syncModified = true;
-              logAction('MOVE_SUCCESS_VRC_TO_SYNC', { 
-                worldId: change.worldId, 
-                from: change.fromFolder, 
-                to: change.toFolder 
-              });
+              logAction('MOVE_SUCCESS_VRC_TO_SYNC', { worldId: change.worldId, from: change.fromFolder, to: change.toFolder });
             } else {
-              errorMessages.push(`${change.worldId}: VRC->Sync Not found`);
+              errorMessages.push(`${change.worldId}: VRC->Sync 移動元が見つかりません`);
               logError('MOVE_NOT_FOUND_VRC_TO_SYNC', change.worldId);
             }
 
           } else if (!fromIsVRC && toIsVRC) {
-            // Sync → VRC
             const syncIndex = syncWorlds.findIndex(w => w.id === change.worldId);
             if (syncIndex !== -1) {
               syncWorlds.splice(syncIndex, 1);
@@ -583,69 +524,80 @@ async function processUnifiedBatch(batch) {
                   folderId: change.toFolder,
                   favoriteRecordId: null
                 });
-                movedSuccessCount++; // 🔥 移動成功
+                movedSuccessCount++;
                 syncModified = true;
                 vrcModified = true;
-                logAction('MOVE_SUCCESS_SYNC_TO_VRC', { 
-                  worldId: change.worldId, 
-                  from: change.fromFolder, 
-                  to: change.toFolder 
-                });
+                logAction('MOVE_SUCCESS_SYNC_TO_VRC', { worldId: change.worldId, from: change.fromFolder, to: change.toFolder });
               } else {
-                errorMessages.push(`${change.worldId}: Details not found`);
+                errorMessages.push(`${change.worldId}: 詳細情報が見つかりません`);
                 logError('MOVE_DETAILS_NOT_FOUND', change.worldId);
               }
             } else {
-              errorMessages.push(`${change.worldId}: Sync->VRC Not found`);
+              errorMessages.push(`${change.worldId}: Sync->VRC 移動元が見つかりません`);
               logError('MOVE_NOT_FOUND_SYNC_TO_VRC', change.worldId);
             }
 
           } else {
-            // Sync → Sync
             const index = syncWorlds.findIndex(w => w.id === change.worldId);
             if (index !== -1) {
               syncWorlds[index].folderId = change.toFolder;
-              movedSuccessCount++; // 🔥 移動成功
+              movedSuccessCount++;
               syncModified = true;
-              logAction('MOVE_SUCCESS_SYNC_TO_SYNC', { 
-                worldId: change.worldId, 
-                from: change.fromFolder, 
-                to: change.toFolder 
-              });
+              logAction('MOVE_SUCCESS_SYNC_TO_SYNC', { worldId: change.worldId, from: change.fromFolder, to: change.toFolder });
             } else {
-              errorMessages.push(`${change.worldId}: Sync->Sync Not found`);
+              errorMessages.push(`${change.worldId}: Sync->Sync 移動元が見つかりません`);
               logError('MOVE_NOT_FOUND_SYNC_TO_SYNC', change.worldId);
             }
           }
         }
       } catch (e) {
+        if (e.message && e.message.includes('MAX_WRITE_OPERATIONS_PER_MINUTE')) {
+          errorMessages.push(`レート制限: 短時間に多くの変更を行ったため、約60秒お待ちください`);
+          logError('UNIFIED_BATCH_RATE_LIMIT', e.message, change);
+          throw e;
+        }
+        
         errorMessages.push(`${change.worldId || 'unknown'}: ${e.message}`);
         logError('UNIFIED_BATCH_ITEM_ERROR', e, change);
       }
     }
 
-    // 変更があった場合のみ書き込み
-    if (syncModified) {
-      await saveWorldsChunked(syncWorlds);
-    }
-    if (vrcModified) {
-      await chrome.storage.local.set({ vrcWorlds });
+    try {
+      if (syncModified) {
+        await saveWorldsChunked(syncWorlds);
+      }
+      if (vrcModified) {
+        await chrome.storage.local.set({ vrcWorlds });
+      }
+    } catch (storageError) {
+      if (storageError.message && storageError.message.includes('MAX_WRITE_OPERATIONS_PER_MINUTE')) {
+        logError('STORAGE_RATE_LIMIT_IN_BATCH', storageError.message);
+        throw new Error('短時間に多くの変更を行ったため、約60秒お待ちください');
+      }
+      throw storageError;
     }
 
-    logBatch('UNIFIED_BATCH_COMPLETE', { 
-      movedSuccess: movedSuccessCount, 
-      deletedSuccess: deletedSuccessCount, 
-      errors: errorMessages.length 
-    });
+    logBatch('UNIFIED_BATCH_COMPLETE', { movedSuccess: movedSuccessCount, deletedSuccess: deletedSuccessCount, errors: errorMessages.length });
     
-    // 🔥 FIX: タイプ別の成功数を正確に返す
     return { 
       movedSuccess: movedSuccessCount,
       deletedSuccess: deletedSuccessCount,
       errors: errorMessages.length, 
       errorMessages 
     };
+    
   } catch (error) {
+    if (error.message && error.message.includes('MAX_WRITE_OPERATIONS_PER_MINUTE')) {
+      logError('UNIFIED_BATCH_RATE_LIMIT_FATAL', error.message);
+      return { 
+        movedSuccess: 0,
+        deletedSuccess: 0,
+        errors: batch.length, 
+        errorMessages: ['短時間に多くの変更を行ったため、約60秒お待ちください'],
+        rateLimitError: true
+      };
+    }
+    
     logError('UNIFIED_BATCH_ERROR', error);
     return { 
       movedSuccess: 0,
@@ -657,7 +609,6 @@ async function processUnifiedBatch(batch) {
 }
 
 async function commitBuffer(request, sendResponse) {
-  // commitBufferは実質batchUpdateWorldsのエイリアス
   await batchUpdateWorlds(request.changes, sendResponse);
 }
 
@@ -715,10 +666,10 @@ async function addFolder(sendResponse) {
     await chrome.storage.sync.set({ folders });
 
     logAction('FOLDER_ADDED', newFolder.id);
-    sendResponse({ success: true, folder: newFolder });
+    sendResponse(createSuccessResponse({ folder: newFolder }));
   } catch (error) {
     logError('ADD_FOLDER', error);
-    sendResponse({ success: false, error: error.message });
+    sendResponse(createGenericError(error.message));
   }
 }
 
@@ -728,7 +679,6 @@ async function removeFolder(folderId, sendResponse) {
     const folders = (sync.folders || []).filter(f => f.id !== folderId);
     await chrome.storage.sync.set({ folders: folders });
 
-    // フォルダ内のワールドを 'none' に移動
     const syncWorlds = await loadWorldsChunked();
     const updatedWorlds = syncWorlds.map(w =>
       w.folderId === folderId ? { ...w, folderId: 'none' } : w
@@ -736,10 +686,10 @@ async function removeFolder(folderId, sendResponse) {
     await saveWorldsChunked(updatedWorlds);
 
     logAction('FOLDER_REMOVED', folderId);
-    sendResponse({ success: true });
+    sendResponse(createSuccessResponse());
   } catch (error) {
     logError('REMOVE_FOLDER', error);
-    sendResponse({ success: false, error: error.message });
+    sendResponse(createGenericError(error.message));
   }
 }
 
@@ -753,13 +703,13 @@ async function renameFolder(folderId, newName, sendResponse) {
       folder.name = newName;
       await chrome.storage.sync.set({ folders });
       logAction('FOLDER_RENAMED', { folderId, newName });
-      sendResponse({ success: true });
+      sendResponse(createSuccessResponse());
     } else {
-      sendResponse({ success: false, error: 'Folder not found' });
+      sendResponse(createGenericError('Folder not found', 'not_found'));
     }
   } catch (error) {
     logError('RENAME_FOLDER', error);
-    sendResponse({ success: false, error: error.message });
+    sendResponse(createGenericError(error.message));
   }
 }
 
@@ -779,11 +729,13 @@ async function detectDuplicates(sendResponse) {
         let dupEntry = duplicates.find(d => d.worldId === world.id);
         if (dupEntry) {
           dupEntry.folders.push(world.folderId);
+          dupEntry.instances.push(world);
         } else {
           duplicates.push({
             worldId: world.id,
             worldName: world.name,
-            folders: [existing.folderId, world.folderId]
+            folders: [existing.folderId, world.folderId],
+            instances: [existing, world]
           });
         }
       } else {
@@ -796,5 +748,105 @@ async function detectDuplicates(sendResponse) {
   } catch (error) {
     logError('DETECT_DUPLICATES_ERROR', error);
     sendResponse({ error: error.message, duplicates: [] });
+  }
+}
+
+async function resolveDuplicates(strategy, sendResponse) {
+  try {
+    logAction('RESOLVE_DUPLICATES_START', { strategy });
+    
+    const allWorlds = await getAllWorldsInternal();
+    const worldMap = new Map();
+    const toDelete = [];
+
+    for (const world of allWorlds) {
+      if (worldMap.has(world.id)) {
+        const existing = worldMap.get(world.id);
+        
+        let keepWorld, deleteWorld;
+        
+        switch (strategy) {
+          case 'keep_vrc':
+            if (world.folderId.startsWith('worlds')) {
+              keepWorld = world;
+              deleteWorld = existing;
+            } else if (existing.folderId.startsWith('worlds')) {
+              keepWorld = existing;
+              deleteWorld = world;
+            } else {
+              keepWorld = existing;
+              deleteWorld = world;
+            }
+            break;
+            
+          case 'keep_newest':
+            if (world.favoriteRecordId && !existing.favoriteRecordId) {
+              keepWorld = world;
+              deleteWorld = existing;
+            } else {
+              keepWorld = existing;
+              deleteWorld = world;
+            }
+            break;
+            
+          case 'keep_first':
+          default:
+            keepWorld = existing;
+            deleteWorld = world;
+            break;
+        }
+        
+        toDelete.push({
+          worldId: deleteWorld.id,
+          folderId: deleteWorld.folderId
+        });
+        
+        worldMap.set(world.id, keepWorld);
+      } else {
+        worldMap.set(world.id, world);
+      }
+    }
+    
+    if (toDelete.length === 0) {
+      logAction('RESOLVE_DUPLICATES_NONE', 'No duplicates found');
+      sendResponse(createSuccessResponse({ 
+        resolvedCount: 0,
+        message: '重複は見つかりませんでした'
+      }));
+      return;
+    }
+    
+    let successCount = 0;
+    const errors = [];
+    
+    for (const item of toDelete) {
+      try {
+        const result = await removeWorldFromFolder(item.worldId, item.folderId);
+        if (result.success) {
+          successCount++;
+        } else {
+          errors.push(`${item.worldId}: ${result.message || result.error}`);
+        }
+      } catch (error) {
+        errors.push(`${item.worldId}: ${error.message}`);
+      }
+    }
+    
+    logAction('RESOLVE_DUPLICATES_COMPLETE', { 
+      total: toDelete.length,
+      success: successCount,
+      errors: errors.length
+    });
+    
+    sendResponse(createSuccessResponse({
+      resolvedCount: successCount,
+      totalDuplicates: toDelete.length,
+      errors: errors.length > 0 ? errors : null,
+      message: `${successCount}件の重複を解消しました`
+    }));
+    
+  } catch (error) {
+    logError('RESOLVE_DUPLICATES_ERROR', error);
+    sendResponse(createGenericError(error.message));
   }
 }

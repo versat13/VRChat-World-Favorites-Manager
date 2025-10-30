@@ -1,3 +1,5 @@
+// options_page.js v1.2.0
+
 // ==================== 翻訳データ ====================
 const translations = {
   ja: {
@@ -11,6 +13,8 @@ const translations = {
     languageLabel: '言語 / Language',
     languageDescription: '表示言語を選択',
     featuresTitle: '⚡ 機能',
+    autoResolveDuplicatesLabel: '重複を自動修復',
+    autoResolveDuplicatesDescription: 'データ更新時に重複が見つかった場合、自動的に解消します',
     vrcSiteIntegrationLabel: 'VRChat公式サイト内にボタン追加',
     vrcSiteIntegrationDescription: 'お気に入りワールド一覧ページやユーザーページで削除ボタンなどを追加する\n※設定変更後、VRChatのページをリロードしてください',
     contextMenuLabel: 'コンテキストメニュー',
@@ -22,7 +26,7 @@ const translations = {
     resetDataLabel: '保存データを全削除',
     resetDataDescription: '保存されているすべてのワールドおよびフォルダを削除する',
     resetDataBtn: '全削除',
-    footerInfo: 'Version 1.1.0',
+    footerInfo: 'Version 1.2.0',
     saveSuccess: '設定を保存しました',
     resetConfirm: '本当にすべての設定をリセットしますか？',
     resetSuccess: '設定をリセットしました',
@@ -40,6 +44,8 @@ const translations = {
     languageLabel: 'Language / 言語',
     languageDescription: 'Select display language',
     featuresTitle: '⚡ Features',
+    autoResolveDuplicatesLabel: 'Auto-Resolve Duplicates',
+    autoResolveDuplicatesDescription: 'Automatically resolve duplicate entries when data is refreshed',
     vrcSiteIntegrationLabel: 'Add Buttons to VRChat Site',
     vrcSiteIntegrationDescription: 'Add delete buttons and more on favorite worlds and user pages\n※Please reload VRChat pages after changing this setting',
     contextMenuLabel: 'Context Menu',
@@ -51,7 +57,7 @@ const translations = {
     resetDataLabel: 'Delete All Saved Data',
     resetDataDescription: 'Delete all saved worlds and folders',
     resetDataBtn: 'Delete All',
-    footerInfo: 'Version 1.1.0',
+    footerInfo: 'Version 1.2.0',
     saveSuccess: 'Settings saved successfully',
     resetConfirm: 'Are you sure you want to reset all settings?',
     resetSuccess: 'Settings reset successfully',
@@ -65,7 +71,9 @@ const DEFAULT_SETTINGS = {
   theme: 'dark',
   language: 'ja',
   enableVrcSiteIntegration: true,
-  enableContextMenu: true
+  enableContextMenu: true,
+  autoResolveDuplicates: true,
+  duplicateStrategy: 'keep_first'
 };
 
 let currentSettings = { ...DEFAULT_SETTINGS };
@@ -93,8 +101,15 @@ async function loadSettings() {
     document.getElementById('languageSelect').value = currentSettings.language;
     
     // トグルスイッチの状態を反映
+    const autoResolveToggle = document.getElementById('autoResolveDuplicatesToggle');
     const vrcToggle = document.getElementById('vrcSiteIntegrationToggle');
     const contextToggle = document.getElementById('contextMenuToggle');
+    
+    if (currentSettings.autoResolveDuplicates !== false) {
+      autoResolveToggle.classList.add('active');
+    } else {
+      autoResolveToggle.classList.remove('active');
+    }
     
     if (currentSettings.enableVrcSiteIntegration !== false) {
       vrcToggle.classList.add('active');
@@ -175,6 +190,13 @@ function setupEventListeners() {
     currentSettings.language = e.target.value;
     currentLang = e.target.value;
     applyLanguage();
+    saveSettings();
+  });
+
+  // 重複自動修復トグル
+  document.getElementById('autoResolveDuplicatesToggle').addEventListener('click', function() {
+    this.classList.toggle('active');
+    currentSettings.autoResolveDuplicates = this.classList.contains('active');
     saveSettings();
   });
 

@@ -1,17 +1,60 @@
-// popup_main.js
+// popup_main.js v1.2.0
+// ========================================
+// VRC同期完了通知のリスナー
+// ========================================
+function setupVRCSyncListener() {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'VRC_SYNC_COMPLETED') {
+      console.log('[Popup] Received VRC_SYNC_COMPLETED:', message);
+      
+      // データを再読み込み
+      loadData().then(() => {
+        renderFolderTabs();
+        renderCurrentView();
+        
+        // FETCH時のみサムネイル取得を自動実行
+        if (message.actionType === 'FETCH' && message.addedCount > 0) {
+          showNotification(t('fetchingThumbnails'), 'info');
+          setTimeout(() => {
+            fetchAllDetails();
+          }, 1000);
+        } else if (message.actionType === 'REFLECT') {
+          showNotification(
+            t('reflectComplete', {
+              removedCount: message.removedCount || 0,
+              movedCount: message.movedCount || 0,
+              addedCount: message.addedCount || 0
+            }),
+            'success'
+          );
+        }
+      }).catch(error => {
+        console.error('[Popup] Failed to reload after VRC sync:', error);
+        showNotification(t('reloadFailed'), 'error');
+      });
+      
+      sendResponse({ received: true });
+      return true;
+    }
+  });
+}
+
 // ========================================
 // 起動
 // ========================================
 document.addEventListener('DOMContentLoaded', async () => {
-  await initSettings(); // pu_core.js
+  await initSettings(); // popup_core.js
   detectWindowMode();
-  await loadSettings(); // pu_core.js
+  await loadSettings(); // popup_core.js
   await loadData();
   setupEventListeners();
   renderFolderTabs();
   renderCurrentView();
   updateEditingState();
-  await checkPendingWorldFromContext(); // pu_actions.js
+  await checkPendingWorldFromContext(); // popup_actions.js
+  
+  // 🔥 VRC同期完了通知のリスナーを追加
+  setupVRCSyncListener();
 });
 
 function detectWindowMode() {
@@ -36,7 +79,7 @@ async function loadData() {
     console.log('[Popup] Data loaded:', allWorlds.length, 'worlds,', folders.length, 'folders,', vrcFolders.length, 'VRC folders');
   } catch (error) {
     console.error('[Popup] Failed to load data:', error);
-    showNotification('データの読み込みに失敗しました', 'error');
+    showNotification(t('dataLoadFailed'), 'error');
   }
 }
 
@@ -94,7 +137,7 @@ function setupEventListeners() {
     renderCurrentView();
   });
 
-  // --- pu_actions.js の関数を呼び出し ---
+  // --- popup_actions.js の関数を呼び出し ---
 
   // 選択中の操作
   document.getElementById('updateSelectedBtn').addEventListener('click', updateSelectedWorlds);
@@ -132,7 +175,7 @@ function setupEventListeners() {
 
   // VRCフォルダモーダル
   document.getElementById('vrcFetchBtn').addEventListener('click', fetchAllVRCFolders);
-  document.getElementById('vrcSyncBtn').addEventListener('click', syncAllFavorites); // (実体は openSyncMenu へのリダイレクト)
+  document.getElementById('vrcSyncBtn').addEventListener('click', syncAllFavorites);
   document.getElementById('vrcCancelBtn').addEventListener('click', () => closeModal('vrcFolderModal'));
 
   // インポート/エクスポートモーダル
@@ -205,8 +248,8 @@ function renderFolderTabs() {
   const container = document.getElementById('folderTabs');
   const tabs = [];
 
-  tabs.push({ id: 'all', name: 'All', class: '', draggable: false });
-  tabs.push({ id: 'none', name: '未分類', class: 'none-folder', draggable: false });
+  tabs.push({ id: 'all', name: t('folderAll'), class: '', draggable: false });
+  tabs.push({ id: 'none', name: t('folderNone'), class: 'none-folder', draggable: false });
 
   // カスタムフォルダ
   let sortedFolders = [...folders];
@@ -265,10 +308,10 @@ function renderFolderTabs() {
 
     if (folderId === 'add') {
       tab.addEventListener('click', () => switchFolder(folderId));
-      tab.addEventListener('dblclick', addNewFolder); // pu_actions.js
+      tab.addEventListener('dblclick', addNewFolder); // popup_actions.js
     } else {
       tab.addEventListener('click', () => switchFolder(folderId));
-      tab.addEventListener('dblclick', () => openFolderEditModal(folderId)); // pu_actions.js
+      tab.addEventListener('dblclick', () => openFolderEditModal(folderId)); // popup_actions.js
     }
 
     // ドロップターゲット
@@ -288,7 +331,7 @@ function renderFolderTabs() {
       tab.classList.remove('drop-target');
       const dataType = e.dataTransfer.types[0];
       if (dataType === 'worldids') {
-        handleFolderDrop(folderId, e); // pu_actions.js
+        handleFolderDrop(folderId, e); // popup_actions.js
       }
     });
 
@@ -388,7 +431,7 @@ function renderWorlds(worlds) {
   const container = document.getElementById('worldsList');
 
   if (worlds.length === 0) {
-    container.innerHTML = '<div class="empty-state">ワールドが見つかりません</div>';
+    container.innerHTML = `<div class="empty-state">${t('emptyState')}</div>`;
     return;
   }
 
@@ -398,18 +441,17 @@ function renderWorlds(worlds) {
     const isPrivate = releaseStatus === 'private';
     const isDeleted = releaseStatus === 'deleted';
     const isSelected = selectedWorldIds.has(world.id);
-    const authorName = world.authorName || '不明';
+    const authorName = world.authorName || t('unknownAuthor');
     const folderName = getFolderDisplayName(world.folderId);
 
-    // 🔥 修正: Deletedバッジの表示条件を修正
     let statusBadge = '';
     if (releaseStatus !== 'unknown') {
       if (isDeleted) {
-        statusBadge = '<span class="status-badge deleted">🗑️ Deleted</span>';
+        statusBadge = `<span class="status-badge deleted">${t('statusDeleted')}</span>`;
       } else if (isPrivate) {
-        statusBadge = '<span class="status-badge private">🔒 Private</span>';
+        statusBadge = `<span class="status-badge private">${t('statusPrivate')}</span>`;
       } else {
-        statusBadge = '<span class="status-badge public">🌐 Public</span>';
+        statusBadge = `<span class="status-badge public">${t('statusPublic')}</span>`;
       }
     }
 
@@ -435,10 +477,10 @@ function renderWorlds(worlds) {
             <div class="world-folder-badge">📁 ${folderName}</div>
           </div>
           <div class="world-actions">
-            <button class="btn-icon" data-action="open" title="新しいタブで開く">↗️</button>
-            <button class="btn-icon" data-action="copy" title="URLをコピー">🔗</button>
-            <button class="btn-icon" data-action="refetch" title="詳細を再取得">🖼️</button>
-            <button class="btn-icon delete" data-action="delete" title="削除">🗑️</button>
+            <button class="btn-icon" data-action="open" title="${t('openInNewTab')}">↗️</button>
+            <button class="btn-icon" data-action="copy" title="${t('copyUrl')}">🔗</button>
+            <button class="btn-icon" data-action="refetch" title="${t('refetchDetails')}">🖼️</button>
+            <button class="btn-icon delete" data-action="delete" title="${t('deleteWorld')}">🗑️</button>
           </div>
         </div>
       </div>
@@ -463,7 +505,7 @@ function renderWorlds(worlds) {
       if (hasSelection) {
         toggleWorldSelection(worldId);
       } else {
-        openWorldPage(worldId); // pu_actions.js
+        openWorldPage(worldId); // popup_actions.js
       }
     });
 
@@ -500,15 +542,15 @@ function renderWorlds(worlds) {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const action = btn.dataset.action;
-        handleWorldAction(action, worldId, folderId); // pu_actions.js
+        handleWorldAction(action, worldId, folderId); // popup_actions.js
       });
     });
   });
 }
 
 function getFolderDisplayName(folderId) {
-  if (folderId === 'none') return '未分類';
-  if (folderId === 'all') return 'All';
+  if (folderId === 'none') return t('folderNone');
+  if (folderId === 'all') return t('folderAll');
 
   const vrcFolder = vrcFolders.find(f => f.id === folderId);
   if (vrcFolder) return vrcFolder.displayName;
@@ -555,7 +597,7 @@ function updateSelectionUI() {
 
   if (count > 0) {
     selectionActions.classList.add('visible');
-    selectionCount.textContent = `選択中: ${count}個`;
+    selectionCount.textContent = t('selectionCount', { count });
   } else {
     selectionActions.classList.remove('visible');
   }
@@ -596,6 +638,62 @@ function changePage(delta) {
   if (newPage >= 1 && newPage <= totalPages) {
     currentPage = newPage;
     renderCurrentView();
+    
+    // 🔥 コンテンツエリアを一番上にスクロール
+    const contentArea = document.querySelector('.content');
+    if (contentArea) {
+      contentArea.scrollTop = 0;
+    }
+  }
+}
+
+// ========================================
+// 重複自動解消
+// ========================================
+async function autoResolveDuplicatesIfNeeded() {
+  try {
+    // 重複検出
+    const detectResponse = await chrome.runtime.sendMessage({ 
+      type: 'detectDuplicates' 
+    });
+    
+    if (!detectResponse.success) {
+      console.warn('[AutoResolve] Failed to detect duplicates:', detectResponse);
+      return;
+    }
+    
+    const duplicates = detectResponse.duplicates || [];
+    
+    if (duplicates.length === 0) {
+      console.log('[AutoResolve] No duplicates found');
+      return;
+    }
+    
+    console.log(`[AutoResolve] Found ${duplicates.length} duplicate groups, resolving...`);
+    showNotification(t('resolvingDuplicates'), 'info');
+    
+    // 重複解消
+    const resolveResponse = await chrome.runtime.sendMessage({
+      type: 'resolveDuplicates',
+      strategy: duplicateStrategy
+    });
+    
+    if (resolveResponse.success) {
+      const count = resolveResponse.resolvedCount || 0;
+      if (count > 0) {
+        showNotification(t('duplicatesResolved', { count }), 'success');
+        // データ再読み込み
+        await loadData();
+        renderFolderTabs();
+        renderCurrentView();
+      }
+    } else {
+      const errorMsg = resolveResponse.userMessage || resolveResponse.message || 'Unknown error';
+      console.error('[AutoResolve] Failed to resolve duplicates:', errorMsg);
+      showNotification(t('duplicateResolveFailed', { error: errorMsg }), 'error');
+    }
+  } catch (error) {
+    console.error('[AutoResolve] Exception:', error);
   }
 }
 
@@ -634,8 +732,6 @@ function updateEditingState() {
   const importBtn = document.getElementById('importBtn');
   const exportBtn = document.getElementById('exportBtn');
   
-  // 🔥 要素が存在しない場合は早期リターン
-    refreshBtn.disabled = false; // 🔥 編集中は押せるようにする
   if (!banner || !refreshBtn) {
     console.warn('[updateEditingState] Required elements not found');
     return;
@@ -647,12 +743,11 @@ function updateEditingState() {
     
     const changeCountEl = banner.querySelector('.change-count');
     if (changeCountEl) {
-      changeCountEl.textContent = `${changeCount}件の変更`;
+      changeCountEl.textContent = t('changeCount', { count: changeCount });
     }
-    refreshBtn.disabled = false; // 🔥 明示的に有効化
-
-    // 🔥 HTMLを直接設定（安全）
-    refreshBtn.innerHTML = '✓<span id="refreshText"> 確定</span>';
+    
+    refreshBtn.disabled = false;
+    refreshBtn.innerHTML = `✔<span id="refreshText">${t('confirmText')}</span>`;
     refreshBtn.classList.add('confirm-button');
 
     addWorldBtn.disabled = true;
@@ -662,12 +757,9 @@ function updateEditingState() {
     exportBtn.disabled = true;
   } else {
     banner.style.display = 'none';
-    
-    // 🔥 テキストとアイコンを復元
-    // 🔥 HTMLを直接設定（安全）
     refreshBtn.classList.remove('confirm-button');
+    refreshBtn.innerHTML = `🔃<span id="refreshText">${t('refreshText')}</span>`;
 
-    // 🔥 同期中でない場合のみボタンを有効化
     addWorldBtn.disabled = isSyncing;
     fetchDetailsBtn.disabled = isSyncing;
     syncBtn.disabled = isSyncing;

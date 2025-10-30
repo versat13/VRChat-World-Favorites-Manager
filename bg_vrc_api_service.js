@@ -1,5 +1,56 @@
-// bg_vrc_api_service.js
+// bg_vrc_api_service.js v1.2.0
 console.log('[VrcApiService] Loaded');
+
+// ========================================
+// 🔥 中断チェックヘルパー関数
+// ========================================
+
+function checkAborted(windowId) {
+  if (typeof isVRCActionAborted === 'function') {
+    return isVRCActionAborted(windowId);
+  }
+  return false;
+}
+
+// ========================================
+// 🔥 VRChatシンクロプロセスのメインエントリーポイント
+// ========================================
+
+async function startVRChatSyncProcess(actionType, windowId, progressCallback) {
+  logAction('START_VRC_SYNC_PROCESS', { actionType, windowId });
+
+  if (actionType === 'FETCH') {
+    return new Promise((resolve, reject) => {
+      fetchAllVRCFolders(
+        (response) => {
+          if (response.success || response.cancelled) {
+            resolve(response);
+          } else {
+            reject(new Error(response.error || 'Fetch failed'));
+          }
+        },
+        progressCallback,
+        windowId
+      );
+    });
+  } else if (actionType === 'REFLECT') {
+    return new Promise((resolve, reject) => {
+      syncAllFavorites(
+        (response) => {
+          if (response.success || response.cancelled) {
+            resolve(response);
+          } else {
+            reject(new Error(response.error || 'Sync failed'));
+          }
+        },
+        progressCallback,
+        windowId
+      );
+    });
+  } else {
+    throw new Error(`Unknown actionType: ${actionType}`);
+  }
+}
 
 // ========================================
 // VRChat API (基礎関数)
@@ -42,9 +93,6 @@ async function fetchVRChatFavoritesByTag(tag) {
   return favorites;
 }
 
-/**
- * ワールド詳細をバッチ取得(並列処理で高速化)
- */
 async function fetchWorldDetailsBatch(worldIds) {
   const detailsMap = {};
   const PARALLEL_LIMIT = 8;
@@ -77,7 +125,7 @@ async function fetchWorldDetailsBatch(worldIds) {
             thumbnailImageUrl: world.thumbnailImageUrl
           }
         };
-      } catch (error) {
+      } catch (e) {
         logError('API_FETCH_DETAILS_EXCEPTION', e, { worldId });
         return null;
       }
@@ -101,9 +149,6 @@ async function fetchWorldDetailsBatch(worldIds) {
   return detailsMap;
 }
 
-/**
- * ワールド詳細をバッチ取得(進捗コールバック付き)
- */
 async function fetchWorldDetailsBatchWithProgress(worldIds, progressCallback) {
   const detailsMap = {};
   const PARALLEL_LIMIT = 8;
@@ -139,7 +184,7 @@ async function fetchWorldDetailsBatchWithProgress(worldIds, progressCallback) {
             thumbnailImageUrl: world.thumbnailImageUrl
           }
         };
-      } catch (error) {
+      } catch (e) {
         logError('API_FETCH_DETAILS_EXCEPTION', e, { worldId });
         return null;
       }
@@ -155,7 +200,6 @@ async function fetchWorldDetailsBatchWithProgress(worldIds, progressCallback) {
 
     processed += chunk.length;
 
-    // 進捗通知
     if (progressCallback) {
       progressCallback(processed, total);
     }
@@ -174,213 +218,64 @@ async function fetchWorldDetailsBatchWithProgress(worldIds, progressCallback) {
 // VRChat API (ページ操作用)
 // ========================================
 
-/**
- * 特定のワールドがVRChatのお気に入りに追加されているか、およびフォルダ情報を取得
- * @param {string} worldId - ワールドID
- * @param {Function} sendResponse - レスポンスを返す関数
- */
 async function getVRCFavoriteInfo(worldId, sendResponse) {
   try {
     logAction('API_GET_FAV_INFO', { worldId });
     
-    // API呼び出し: 特定のworldIdを持つお気に入りを検索
     const response = await fetch(`${API_BASE}/favorites?type=world&favoriteId=${worldId}`, {
       method: 'GET',
       credentials: 'include'
     });
 
     if (!response.ok) {
-      if (response.status === 401) throw new Error('VRChatにログインしていません');
-      throw new Error(`API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    // 取得したお気に入りレコードの配列 (最大1件)
-    if (data.length === 0) {
-      // 登録されていない場合
-      sendResponse({
-        success: true,
-        favorited: false
-      });
-    } else {
-      // 登録されている場合
-      const favorite = data[0];
-      sendResponse({
-        success: true,
-        favorited: true,
-        favoriteRecordId: favorite.id,
-        // tags配列の最初の要素をfolderIdとして返す (VRChatのお気に入りフォルダは1つのみ)
-        folderId: favorite.tags?.[0] || 'worlds1' 
-      });
-    }
-  } catch (error) {
-    // ネットワークエラーやその他の例外が発生した場合
-    logError('API_GET_FAV_INFO_ERROR', error, { worldId });
-    sendResponse({ success: false, error: error.message });
-  }
-}
-
-// ========================================
-// 統合VRChatSync処理 (ブリッジウィンドウ用)
-// ========================================
-
-/**
- * VRChatブリッジウィンドウからの統合同期処理
- * @param {string} actionType - 'FETCH' または 'REFLECT'
- * @param {Function} progressCallback - 進捗通知用コールバック (action, payload)
- */
-async function startVRChatSyncProcess(actionType, progressCallback) {
-  const DEBUG = true;
-
-  try {
-    if (DEBUG) console.log(`[VRC_BRIDGE] Starting ${actionType} process`);
-
-    const notifyProgress = (message, percent, params = {}) => {
-      if (progressCallback) {
-        progressCallback('VRC_ACTION_PROGRESS', { message, percent, ...params });
-      }
-    };
-
-    const notifyComplete = (result = {}) => {
-      if (progressCallback) {
-        progressCallback('VRC_ACTION_COMPLETE', { result });
-      }
-    };
-
-    const notifyError = (error) => {
-      if (progressCallback) {
-        progressCallback('VRC_ACTION_ERROR', { error });
-      }
-    };
-
-    if (actionType === 'FETCH') {
-      notifyProgress('fetch_phase0_fetchingGroups', 10);
-
-      const result = await new Promise((resolve, reject) => {
-        fetchAllVRCFolders(
-          (response) => {
-            if (response.success || response.addedCount > 0) {
-              resolve(response);
-            } else {
-              reject(new Error(response.error || '取得に失敗しました'));
-            }
-          },
-          // 🔥 fetchAllVRCFoldersからの進捗をそのままブリッジウィンドウへ転送
-          (message, percent, params) => {
-            notifyProgress(message, percent, params);
-          }
-        );
-      });
-
-      if (result.success || result.addedCount > 0) {
-        notifyComplete(result);
-      } else {
-        notifyError(result.error || '取得に失敗しました');
-      }
-
-    } else if (actionType === 'REFLECT') {
-      notifyProgress('phase0_fetchingGroups', 10);
-
-      await ensureVRCTagMapInitialized();
-
-      notifyProgress('sync_start', 20);
-
-      // 🔥 v1.0.2修正: syncAllFavoritesに進捗コールバックを渡す
-      const result = await new Promise((resolve, reject) => {
-        syncAllFavorites(
-          (response) => {
-            if (response.success || response.removedCount > 0 || response.movedCount > 0 || response.addedCount > 0) {
-              resolve(response);
-            } else {
-              reject(new Error(response.error || '反映に失敗しました'));
-            }
-          },
-          // 🔥 v1.0.2修正: 第2引数として進捗コールバックを渡す
-          (message, percent, params) => {
-            notifyProgress(message, percent, params);
-          }
-        );
-      });
-
-      if (result.success || result.removedCount > 0 || result.movedCount > 0 || result.addedCount > 0) {
-        // 最終的なメッセージはhandleCompleteで処理されるため、ここでは通知しない
-        notifyComplete(result);
-      } else {
-        notifyError(result.error || '反映に失敗しました');
-      }
-
-    } else {
-      const errorMsg = '不明なアクションタイプ: ' + actionType;
-      logError('VRC_BRIDGE_INVALID_ACTION', errorMsg, { actionType });
-      notifyError(errorMsg);
-    }
-
-  } catch (error) {
-    logError('VRC_BRIDGE_FATAL', error, { actionType });
-    if (progressCallback) {
-      progressCallback('VRC_ACTION_ERROR', { error: error.message });
-    }
-  }
-}
-
-// ========================================
-// 単一ワールド詳細取得 (popup.js用)
-// ========================================
-
-/**
- * 単一ワールドの詳細情報を取得
- */
-async function getSingleWorldDetails(worldId, sendResponse) {
-  try {
-    logAction('API_GET_SINGLE_WORLD', { worldId });
-
-    const response = await fetch(`${API_BASE}/worlds/${worldId}`, {
-      method: 'GET',
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      if (response.status === 404) {
-        sendResponse({
-          success: true,
-          status: 404,
-          details: {
-            id: worldId,
-            name: '[Deleted]',
-            authorName: null,
-            releaseStatus: 'deleted',
-            thumbnailImageUrl: null
-          }
-        });
+      if (response.status === 401) {
+        sendResponse(createAuthError());
         return;
       }
-
-      logError('API_GET_SINGLE_WORLD_ERROR', `Status ${response.status}`, { worldId });
-      sendResponse({
-        success: false,
-        error: `API error: ${response.status}`,
-        status: response.status
-      });
+      sendResponse(createApiError(response.status));
       return;
     }
 
     const data = await response.json();
-    sendResponse({
-      success: true,
-      details: {
-        id: data.id,
-        name: data.name,
-        authorName: data.authorName,
-        releaseStatus: data.releaseStatus,
-        thumbnailImageUrl: data.thumbnailImageUrl
-      }
-    });
 
-    logAction('API_GET_SINGLE_WORLD_SUCCESS', { worldId });
+    // 🔥 修正: 配列が空、またはfavoriteIdが一致しない場合は「未登録」として扱う
+    if (data.length === 0) {
+      logAction('API_GET_FAV_INFO_NOT_FOUND', { worldId });
+      sendResponse(createSuccessResponse({
+        favorited: false
+      }));
+      return;
+    }
+
+    // 🔥 重要: 返ってきた結果のfavoriteIdが、リクエストしたworldIdと完全一致するか確認
+    const matchingFavorite = data.find(fav => fav.favoriteId === worldId);
+
+    if (!matchingFavorite) {
+      logAction('API_GET_FAV_INFO_NO_MATCH', { 
+        worldId, 
+        foundIds: data.map(f => f.favoriteId).join(', ')
+      });
+      sendResponse(createSuccessResponse({
+        favorited: false
+      }));
+      return;
+    }
+
+    // 完全一致する結果が見つかった場合のみ「登録済み」として扱う
+    logAction('API_GET_FAV_INFO_FOUND', { 
+      worldId, 
+      favoriteRecordId: matchingFavorite.id 
+    });
+    
+    sendResponse(createSuccessResponse({
+      favorited: true,
+      favoriteRecordId: matchingFavorite.id,
+      folderId: matchingFavorite.tags?.[0] || 'worlds1' 
+    }));
+
   } catch (error) {
-    logError('API_GET_SINGLE_WORLD_EXCEPTION', error, { worldId });
-    sendResponse({ success: false, error: error.message });
+    logError('API_GET_FAV_INFO_ERROR', error, { worldId });
+    sendResponse(createGenericError(error.message));
   }
 }
 
@@ -388,19 +283,20 @@ async function moveVRCWorldFolder(worldId, favoriteRecordId, fromFolder, toFolde
   try {
     logAction('API_MOVE_VRC_START', { worldId, fromFolder, toFolder });
     if (fromFolder === toFolder) {
-      sendResponse({ success: true, message: '同じフォルダです' });
+      sendResponse(createSuccessResponse({ message: '同じフォルダです' }));
       return;
     }
 
-    // 1: 削除
     const deleteResponse = await fetch(`${API_BASE}/favorites/${favoriteRecordId}`, {
       method: 'DELETE',
       credentials: 'include'
     });
-    if (!deleteResponse.ok) throw new Error(`削除失敗: ${deleteResponse.status}`);
+    if (!deleteResponse.ok) {
+      sendResponse(createApiError(deleteResponse.status, { operation: 'delete' }));
+      return;
+    }
     await sleep(300);
 
-    // 2: 追加
     const addResponse = await fetch(`${API_BASE}/favorites`, {
       method: 'POST',
       credentials: 'include',
@@ -409,7 +305,6 @@ async function moveVRCWorldFolder(worldId, favoriteRecordId, fromFolder, toFolde
     });
 
     if (!addResponse.ok) {
-      // 3: ロールバック (失敗)
       logError('API_MOVE_VRC_ADD_FAILED', `Status ${addResponse.status}`, { worldId });
       const rollbackResponse = await fetch(`${API_BASE}/favorites`, {
         method: 'POST',
@@ -438,121 +333,117 @@ async function moveVRCWorldFolder(worldId, favoriteRecordId, fromFolder, toFolde
 
     const addData = await addResponse.json();
     logAction('API_MOVE_VRC_SUCCESS', { worldId, newId: addData.id });
-    sendResponse({ success: true, newFavoriteRecordId: addData.id });
+    sendResponse(createSuccessResponse({ newFavoriteRecordId: addData.id }));
 
   } catch (error) {
     logError('API_MOVE_VRC_ERROR', error, { worldId });
-    sendResponse({ success: false, error: error.message });
+    sendResponse(createGenericError(error.message));
   }
 }
 
-// ========================================
-// addVRCFavorite - page-favorite.js関連
-// ========================================
 async function addVRCFavorite(worldId, folderId, sendResponse) {
   try {
-    // 🔥 修正: VRC_TAG_MAPが初期化されていることを確認
     await ensureVRCTagMapInitialized();
-    
-    // 🔥 修正: 内部ID（worlds1など）をVRC公式タグ名に変換
     const officialTag = getOfficialTagFromLocalFolderId(folderId);
-    
+
     logAction('API_ADD_VRC_FAV', { worldId, folderId, officialTag });
-    
+
     const response = await fetch(`${API_BASE}/favorites`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        type: 'world', 
-        favoriteId: worldId, 
-        tags: [officialTag]  // 🔥 修正: 変換後のタグを使用
+      body: JSON.stringify({
+        type: 'world',
+        favoriteId: worldId,
+        tags: [officialTag]
       })
     });
 
     if (!response.ok) {
-      if (response.status === 401) throw new Error('VRChatにログインしていません');
-      
-      // 🔥 修正: 詳細なエラー情報を取得
+      if (response.status === 401) {
+        sendResponse(createAuthError());
+        return;
+      }
+
       let errorDetail = '';
       try {
         const errorData = await response.json();
         errorDetail = errorData.error?.message || JSON.stringify(errorData);
-      } catch (error) {
+      } catch (e) {
         errorDetail = await response.text();
       }
-      
-      logError('API_ADD_VRC_FAV_FAILED', `Status ${response.status}: ${errorDetail}`, { 
-        worldId, 
-        folderId, 
-        officialTag 
+
+      logError('API_ADD_VRC_FAV_FAILED', `Status ${response.status}: ${errorDetail}`, {
+        worldId,
+        folderId,
+        officialTag
       });
-      
-      throw new Error(`追加失敗: ${response.status} - ${errorDetail}`);
+
+      sendResponse(createApiError(response.status, { detail: errorDetail }));
+      return;
     }
 
     const data = await response.json();
-    
-    logAction('API_ADD_VRC_FAV_SUCCESS', { 
-      worldId, 
+
+    logAction('API_ADD_VRC_FAV_SUCCESS', {
+      worldId,
       favoriteRecordId: data.id,
       folderId: officialTag
     });
-    
-    sendResponse({ success: true, favoriteRecordId: data.id });
+
+    sendResponse(createSuccessResponse({ favoriteRecordId: data.id }));
   } catch (error) {
     logError('API_ADD_VRC_FAV_ERROR', error, { worldId, folderId });
-    sendResponse({ success: false, error: error.message });
+    sendResponse(createGenericError(error.message));
   }
 }
 
-// ========================================
-// deleteVRCFavorite - page-favorite.js関連
-// ========================================
 async function deleteVRCFavorite(favoriteRecordId, sendResponse) {
   try {
-    // 🔥 修正: 入力検証を追加
     if (!favoriteRecordId) {
-      throw new Error('favoriteRecordIdが指定されていません');
+      sendResponse(createGenericError('favoriteRecordIdが指定されていません', 'missing_parameter'));
+      return;
     }
-    
+
     logAction('API_DELETE_VRC_FAV', { favoriteRecordId });
-    
+
     const response = await fetch(`${API_BASE}/favorites/${favoriteRecordId}`, {
       method: 'DELETE',
       credentials: 'include'
     });
 
     if (!response.ok) {
-      if (response.status === 401) throw new Error('VRChatにログインしていません');
-      if (response.status === 404) {
-        // 既に削除されている場合は成功扱い
-        logAction('API_DELETE_VRC_FAV_ALREADY_DELETED', { favoriteRecordId });
-        sendResponse({ success: true });
+      if (response.status === 401) {
+        sendResponse(createAuthError());
         return;
       }
-      
-      // 🔥 修正: 詳細なエラー情報を取得
+      if (response.status === 404) {
+        logAction('API_DELETE_VRC_FAV_ALREADY_DELETED', { favoriteRecordId });
+        sendResponse(createSuccessResponse());
+        return;
+      }
+
       let errorDetail = '';
       try {
         const errorData = await response.json();
         errorDetail = errorData.error?.message || JSON.stringify(errorData);
-      } catch (error) {
+      } catch (e) {
         errorDetail = await response.text();
       }
-      
-      logError('API_DELETE_VRC_FAV_FAILED', `Status ${response.status}: ${errorDetail}`, { 
-        favoriteRecordId 
+
+      logError('API_DELETE_VRC_FAV_FAILED', `Status ${response.status}: ${errorDetail}`, {
+        favoriteRecordId
       });
-      
-      throw new Error(`削除失敗: ${response.status} - ${errorDetail}`);
+
+      sendResponse(createApiError(response.status, { detail: errorDetail }));
+      return;
     }
 
     logAction('API_DELETE_VRC_FAV_SUCCESS', { favoriteRecordId });
-    sendResponse({ success: true });
+    sendResponse(createSuccessResponse());
   } catch (error) {
     logError('API_DELETE_VRC_FAV_ERROR', error, { favoriteRecordId });
-    sendResponse({ success: false, error: error.message });
+    sendResponse(createGenericError(error.message));
   }
 }
 
@@ -560,9 +451,6 @@ async function deleteVRCFavorite(favoriteRecordId, sendResponse) {
 // VRC同期 (メインフロー)
 // ========================================
 
-/**
- * VRChatのフォルダ定義をAPIから取得し、ストレージを更新
- */
 async function updateVRCFolderData(worldGroups) {
   const vrcFolderData = {};
   const folderIds = ['worlds1', 'worlds2', 'worlds3', 'worlds4'];
@@ -581,12 +469,8 @@ async function updateVRCFolderData(worldGroups) {
   return vrcFolderData;
 }
 
-// 🔥 VRC_TAG_MAPの初期化を明示的に管理
 let VRC_TAG_MAP = null;
 
-/**
- * VRC_TAG_MAPを確実に初期化する
- */
 async function ensureVRCTagMapInitialized() {
   if (VRC_TAG_MAP === null) {
     VRC_TAG_MAP = await getVRCFolderTagMap();
@@ -595,9 +479,6 @@ async function ensureVRCTagMapInitialized() {
   return VRC_TAG_MAP;
 }
 
-/**
- * ストレージからVRChat公式タグとローカルフォルダIDのマップを取得する
- */
 async function getVRCFolderTagMap() {
   const sync = await chrome.storage.sync.get(['vrcFolderData']);
   const vrcFolderData = sync.vrcFolderData || {};
@@ -611,9 +492,6 @@ async function getVRCFolderTagMap() {
   return tagMap;
 }
 
-/**
- * ローカルフォルダIDからVRChatの公式タグ名を取得する
- */
 function getOfficialTagFromLocalFolderId(localFolderId) {
   if (VRC_TAG_MAP === null) {
     logError('VRC_TAG_MAP_NOT_INITIALIZED', 'VRC_TAG_MAP is not initialized', { localFolderId });
@@ -622,35 +500,133 @@ function getOfficialTagFromLocalFolderId(localFolderId) {
   return VRC_TAG_MAP[localFolderId] || localFolderId;
 }
 
-async function fetchAllVRCFolders(sendResponse, progressCallback = null) {
+// ========================================
+// シングルワールド詳細取得 (UI用)
+// ========================================
+
+async function getSingleWorldDetails(worldId, sendResponse) {
+  try {
+    logAction('API_GET_SINGLE_WORLD', { worldId });
+    
+    const response = await fetch(`${API_BASE}/worlds/${worldId}`, {
+      method: 'GET',
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        sendResponse(createAuthError());
+        return;
+      }
+      if (response.status === 404) {
+        // 🔥 削除済みワールドとして保存
+        const deletedWorld = {
+          id: worldId,
+          name: worldId,
+          authorName: 'Unknown',
+          releaseStatus: 'deleted',
+          thumbnailImageUrl: null
+        };
+        await saveWorldDetailToCache(worldId, deletedWorld);
+        logAction('API_GET_SINGLE_WORLD_DELETED', { worldId });
+        sendResponse(createSuccessResponse({ world: deletedWorld }));
+        return;
+      }
+      sendResponse(createApiError(response.status));
+      return;
+    }
+
+    const world = await response.json();
+    const worldData = {
+      id: world.id,
+      name: world.name,
+      authorName: world.authorName,
+      releaseStatus: world.releaseStatus,
+      thumbnailImageUrl: world.thumbnailImageUrl
+    };
+    
+    await saveWorldDetailToCache(worldId, worldData);
+    logAction('API_GET_SINGLE_WORLD_SUCCESS', { worldId });
+    sendResponse(createSuccessResponse({ world: worldData }));
+
+  } catch (error) {
+    logError('API_GET_SINGLE_WORLD_ERROR', error, { worldId });
+    sendResponse(createGenericError(error.message));
+  }
+}
+
+// ========================================
+// キャッシュヘルパー関数
+// ========================================
+
+async function getWorldDetailFromCache(worldId) {
+  const chunkIndex = Math.abs(hashCode(worldId)) % DETAILS_CHUNK_SIZE;
+  const key = `worldDetails_${chunkIndex}`;
+  
+  const result = await chrome.storage.local.get([key]);
+  const chunk = result[key] || {};
+  
+  return chunk[worldId] || null;
+}
+
+async function saveWorldDetailToCache(worldId, worldData) {
+  const chunkIndex = Math.abs(hashCode(worldId)) % DETAILS_CHUNK_SIZE;
+  const key = `worldDetails_${chunkIndex}`;
+  
+  const result = await chrome.storage.local.get([key]);
+  const chunk = result[key] || {};
+  
+  chunk[worldId] = worldData;
+  
+  await chrome.storage.local.set({ [key]: chunk });
+}
+
+// bg_vrc_api_service.js v1.2.0 (後半)
+// 前半からの続き
+
+async function fetchAllVRCFolders(sendResponse, progressCallback = null, windowId = null) {
   try {
     logAction('FETCH_ALL_VRC_START', {});
 
-    // 進捗通知ヘルパー
-    // 🔥 fetchAllVRCFoldersは、fetch系の汎用的なメッセージを使用する
     const notifyProgress = (message, percent, params = {}) => {
       if (progressCallback) {
-        progressCallback(message, percent, params);
+        progressCallback('VRC_ACTION_PROGRESS', { message, percent, ...params });
       }
     };
 
     notifyProgress('fetch_phase0_fetchingGroups', 5);
 
-    // 1: VRCフォルダ情報取得
+    if (windowId && checkAborted(windowId)) {
+      logAction('FETCH_CANCELLED', { phase: 'initial' });
+      sendResponse({ success: false, cancelled: true });
+      return;
+    }
+
     const worldGroups = await fetchVRChatFavoriteGroups();
     await updateVRCFolderData(worldGroups);
 
     notifyProgress('fetch_phase0_groupsComplete', 10);
 
-    // 2: 各フォルダからワールド取得
+    if (windowId && checkAborted(windowId)) {
+      logAction('FETCH_CANCELLED', { phase: 'after_groups' });
+      sendResponse({ success: false, cancelled: true });
+      return;
+    }
+
     const allVRCWorlds = [];
     const folderIds = ['worlds1', 'worlds2', 'worlds3', 'worlds4'];
 
     for (let i = 0; i < worldGroups.length && i < 4; i++) {
+      if (windowId && checkAborted(windowId)) {
+        logAction('FETCH_CANCELLED', { phase: 'folder_loop', progress: i });
+        sendResponse({ success: false, cancelled: true });
+        return;
+      }
+
       const group = worldGroups[i];
       const mappedFolderId = folderIds[i];
 
-      notifyProgress('fetch_phase1_fetchingFolder', 10 + (i * 5), { 
+      notifyProgress('fetch_phase1_fetchingFolder', 10 + (i * 5), {
         name: group.displayName
       });
 
@@ -668,25 +644,38 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null) {
         }
         await sleep(300);
       } catch (error) {
-        logError('FETCH_VRC_FOLDER_ERROR', e, { folder: group.name });
+        logError('FETCH_VRC_FOLDER_ERROR', error, { folder: group.name });
       }
     }
 
     logAction('VRC_WORLDS_FETCHED', { totalCount: allVRCWorlds.length });
     notifyProgress('fetch_phase1_worldsFetched', 30, { count: allVRCWorlds.length });
 
-    // 2.5: ワールド詳細情報を取得
+    if (windowId && checkAborted(windowId)) {
+      logAction('FETCH_CANCELLED', { phase: 'before_details' });
+      sendResponse({ success: false, cancelled: true });
+      return;
+    }
+
     notifyProgress('fetch_phase2_fetchingDetails', 35);
 
     const worldIds = allVRCWorlds.map(w => w.id);
     const worldDetailsMap = await fetchWorldDetailsBatchWithProgress(
       worldIds,
       (current, total) => {
-        const progress = 35 + Math.floor((current / total) * 50); // 35%～85%
-        // 🔥 進捗率だけでなく、件数情報も通知する
+        if (windowId && checkAborted(windowId)) {
+          return;
+        }
+        const progress = 35 + Math.floor((current / total) * 50);
         notifyProgress('fetch_phase2_detailsProgress', progress, { current, total });
       }
     );
+
+    if (windowId && checkAborted(windowId)) {
+      logAction('FETCH_CANCELLED', { phase: 'after_details' });
+      sendResponse({ success: false, cancelled: true });
+      return;
+    }
 
     for (const world of allVRCWorlds) {
       const details = worldDetailsMap[world.id];
@@ -698,7 +687,6 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null) {
 
     notifyProgress('fetch_phase3_calculating', 85);
 
-    // 3: 既存ワールドとの差分計算
     const allExisting = await getAllWorldsInternal();
     const existingMap = new Map(allExisting.map(w => [w.id, w]));
     const toMove = [];
@@ -721,9 +709,14 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null) {
     }
     logAction('VRC_DIFF_CALCULATED', { toMove: toMove.length, toAdd: toAdd.length });
 
+    if (windowId && checkAborted(windowId)) {
+      logAction('FETCH_CANCELLED', { phase: 'before_apply' });
+      sendResponse({ success: false, cancelled: true });
+      return;
+    }
+
     notifyProgress('fetch_phase4_applying', 90);
 
-    // 4: 移動処理 (バッチ処理を流用)
     let movedCount = 0;
     if (toMove.length > 0) {
       const moveResponse = await new Promise((resolve) => {
@@ -732,12 +725,23 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null) {
       movedCount = moveResponse.movedCount || 0;
     }
 
+    if (windowId && checkAborted(windowId)) {
+      logAction('FETCH_CANCELLED', { phase: 'after_move' });
+      sendResponse({ success: false, cancelled: true });
+      return;
+    }
+
     notifyProgress('fetch_phase5_addingNew', 95);
 
-    // 5: 新規追加処理
     let addedCount = 0;
     const addErrors = [];
     for (const world of toAdd) {
+      if (windowId && checkAborted(windowId)) {
+        logAction('FETCH_CANCELLED', { phase: 'add_loop', progress: addedCount });
+        sendResponse({ success: false, cancelled: true });
+        return;
+      }
+
       const result = await addWorldToFolder(world);
       if (result.success) addedCount++;
       else addErrors.push(`${world.id}: ${result.reason || result.error}`);
@@ -757,19 +761,11 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null) {
 
   } catch (error) {
     logError('FETCH_ALL_VRC_ERROR', error);
-    sendResponse({ success: false, error: error.message });
+    sendResponse(createGenericError(error.message));
   }
 }
 
-// ========================================
-// VRC同期 (エクスポート)
-// ========================================
-
-/**
- * 完全同期: 拡張機能の状態をVRC公式に反映 
- * 🔥 v1.0.2: 進捗バーの粒度を大幅に改善, メッセージを翻訳キー化
- */
-async function syncAllFavorites(sendResponse, progressCallback = null) {
+async function syncAllFavorites(sendResponse, progressCallback = null, windowId = null) {
   const DEBUG = true;
   const SYNC_DELAY = 500;
 
@@ -782,11 +778,9 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
   const errors = [];
 
   try {
-    // 進捗通知ヘルパー
-    // 🔥 メッセージは翻訳キーを使用し、必要なパラメータを渡す
     const notifyProgress = (message, percent, params = {}) => {
       if (progressCallback) {
-        progressCallback(message, percent, params);
+        progressCallback('VRC_ACTION_PROGRESS', { message, percent, ...params });
       }
     };
 
@@ -794,18 +788,17 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
     if (DEBUG) console.log('[SYNC_EXPORT] 完全同期開始');
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
 
-    // ========================================
-    // Phase 0: 状態取得
-    // ========================================
-    if (DEBUG) console.log('[SYNC_EXPORT] Phase 0: 状態取得開始');
-
     notifyProgress('phase0_fetchingGroups', 5);
 
-    // 🔥 修正: VRC_TAG_MAPを確実に初期化
+    if (windowId && checkAborted(windowId)) {
+      logAction('SYNC_CANCELLED', { phase: 'initial' });
+      sendResponse({ success: false, cancelled: true });
+      return;
+    }
+
     VRC_TAG_MAP = await ensureVRCTagMapInitialized();
     if (DEBUG) console.log('[SYNC_EXPORT] VRC Tag Map loaded:', VRC_TAG_MAP);
 
-    // VRC側の状態を取得
     const worldGroups = await fetchVRChatFavoriteGroups();
     const vrcMap = new Map();
     const folderIds = ['worlds1', 'worlds2', 'worlds3', 'worlds4'];
@@ -813,6 +806,12 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
     notifyProgress('phase0_fetchingVRCStatus', 10);
 
     for (let i = 0; i < worldGroups.length && i < 4; i++) {
+      if (windowId && checkAborted(windowId)) {
+        logAction('SYNC_CANCELLED', { phase: 'fetch_vrc_folders', progress: i });
+        sendResponse({ success: false, cancelled: true });
+        return;
+      }
+
       const group = worldGroups[i];
       const mappedFolderId = folderIds[i];
 
@@ -834,14 +833,13 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
         }
         await sleep(300);
       } catch (error) {
-        logError('SYNC_EXPORT_FETCH_VRC_FOLDER', e, { folder: group.name });
-        errors.push(`VRCフォルダ取得失敗 (${group.name}): ${e.message}`);
+        logError('SYNC_EXPORT_FETCH_VRC_FOLDER', error, { folder: group.name });
+        errors.push(`VRCフォルダ取得失敗 (${group.name}): ${error.message}`);
       }
     }
 
     if (DEBUG) console.log('[SYNC_EXPORT] VRC側ワールド数:', vrcMap.size);
 
-    // ローカルのVRCワールドを取得
     const local = await chrome.storage.local.get(['vrcWorlds']);
     const localVRCWorlds = local.vrcWorlds || [];
 
@@ -856,14 +854,16 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
 
     notifyProgress('phase0_calculating', 25);
 
-    // ========================================
-    // 差分計算
-    // ========================================
+    if (windowId && checkAborted(windowId)) {
+      logAction('SYNC_CANCELLED', { phase: 'before_diff' });
+      sendResponse({ success: false, cancelled: true });
+      return;
+    }
+
     const toRemove = [];
     const toMove = [];
     const toAdd = [];
 
-    // VRCにあるが拡張機能にないもの → 削除
     for (const [worldId, vrcData] of vrcMap) {
       if (!localMap.has(worldId)) {
         toRemove.push({
@@ -874,7 +874,6 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
       }
     }
 
-    // 両方にあるがフォルダが異なる → 移動
     for (const [worldId, localData] of localMap) {
       const vrcData = vrcMap.get(worldId);
       if (vrcData && vrcData.folderId !== localData.folderId) {
@@ -888,7 +887,6 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
       }
     }
 
-    // 拡張機能にあるがVRCにない → 追加
     for (const [worldId, localData] of localMap) {
       if (!vrcMap.has(worldId)) {
         toAdd.push({
@@ -906,7 +904,7 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
     totalRemove = toRemove.length;
     totalMove = toMove.length;
     totalAdd = toAdd.length;
-    
+
     notifyProgress('phase0_calculationComplete', 30, {
       toRemove: totalRemove,
       toMove: totalMove,
@@ -926,9 +924,6 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
       return;
     }
 
-    // ========================================
-    // Phase 1: 削除 (30% → 45%)
-    // ========================================
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
     if (DEBUG) console.log('[SYNC_EXPORT] Phase 1: 削除処理 (' + totalRemove + '件)');
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
@@ -938,9 +933,13 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
     const PHASE1_RANGE = PHASE1_END - PHASE1_START;
 
     for (let i = 0; i < totalRemove; i++) {
+      if (windowId && checkAborted(windowId)) {
+        logAction('SYNC_CANCELLED', { phase: 'remove', progress: i });
+        sendResponse({ success: false, cancelled: true });
+        return;
+      }
+
       const item = toRemove[i];
-      
-      // 🔥 v1.0.2: 個別アイテムごとに進捗を更新
       const progress = PHASE1_START + Math.floor((i / totalRemove) * PHASE1_RANGE);
       notifyProgress('phase1_removing', progress, { current: i + 1, total: totalRemove });
 
@@ -961,22 +960,18 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
           errors.push(`削除失敗 (${item.worldId}): ${response.status}`);
         }
 
-        // 🔥 v1.0.2: 10件ごとにのみ待機（効率化）
         if ((i + 1) % 10 === 0 || i === totalRemove - 1) {
           await sleep(SYNC_DELAY);
         }
       } catch (error) {
-        logError('SYNC_EXPORT_DELETE_EXCEPTION', e, { worldId: item.worldId });
-        errors.push(`削除エラー (${item.worldId}): ${e.message}`);
+        logError('SYNC_EXPORT_DELETE_EXCEPTION', error, { worldId: item.worldId });
+        errors.push(`削除エラー (${item.worldId}): ${error.message}`);
       }
     }
 
     notifyProgress('phase1_complete', PHASE1_END, { count: removedCount, total: totalRemove });
     if (DEBUG) console.log(`[SYNC_EXPORT] Phase 1 完了: ${removedCount}/${totalRemove}件削除`);
 
-    // ========================================
-    // Phase 2: 移動 (45% → 70%)
-    // ========================================
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
     if (DEBUG) console.log('[SYNC_EXPORT] Phase 2: 移動処理 (' + totalMove + '件)');
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
@@ -986,14 +981,17 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
     const PHASE2_RANGE = PHASE2_END - PHASE2_START;
 
     for (let i = 0; i < totalMove; i++) {
+      if (windowId && checkAborted(windowId)) {
+        logAction('SYNC_CANCELLED', { phase: 'move', progress: i });
+        sendResponse({ success: false, cancelled: true });
+        return;
+      }
+
       const item = toMove[i];
-      
-      // 🔥 v1.0.2: 個別アイテムごとに進捗を更新
       const progress = PHASE2_START + Math.floor((i / totalMove) * PHASE2_RANGE);
       notifyProgress('phase2_moving', progress, { current: i + 1, total: totalMove });
 
       try {
-        // private/deleted は移動不可
         if (item.releaseStatus === 'private' || item.releaseStatus === 'deleted') {
           if (DEBUG) console.log(`[SYNC_EXPORT] ⚠️ スキップ (${item.releaseStatus}): ${item.worldId}`);
           errors.push(`移動スキップ (${item.worldId}): ${item.releaseStatus}のため移動不可`);
@@ -1002,7 +1000,6 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
 
         if (DEBUG) console.log(`[SYNC_EXPORT] 移動: ${item.worldId} (${item.fromFolder} → ${item.toFolder})`);
 
-        // 1. 削除
         const deleteResponse = await fetch(`${API_BASE}/favorites/${item.oldFavoriteRecordId}`, {
           method: 'DELETE',
           credentials: 'include'
@@ -1012,18 +1009,14 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
           const errorText = await deleteResponse.text();
           logError('SYNC_EXPORT_MOVE_DELETE_FAILED', `Status ${deleteResponse.status}`, { worldId: item.worldId, errorText });
           errors.push(`移動削除失敗 (${item.worldId}): ${deleteResponse.status}`);
-          
-          // 🔥 v1.0.2: 削除失敗時は次へ（待機は10件ごと）
           if ((i + 1) % 10 === 0 || i === totalMove - 1) {
             await sleep(SYNC_DELAY);
           }
           continue;
         }
 
-        // 🔥 v1.0.2: 削除成功後の短い待機（200ms）
         await sleep(200);
 
-        // 2. 追加
         const targetTag = getOfficialTagFromLocalFolderId(item.toFolder);
         if (DEBUG) console.log(`[SYNC_EXPORT]   => VRC公式タグ: ${targetTag}`);
 
@@ -1054,22 +1047,18 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
           errors.push(`移動追加失敗 (${item.worldId}): ${addResponse.status}`);
         }
 
-        // 🔥 v1.0.2: 10件ごとにのみ待機
         if ((i + 1) % 10 === 0 || i === totalMove - 1) {
           await sleep(SYNC_DELAY);
         }
       } catch (error) {
-        logError('SYNC_EXPORT_MOVE_EXCEPTION', e, { worldId: item.worldId });
-        errors.push(`移動エラー (${item.worldId}): ${e.message}`);
+        logError('SYNC_EXPORT_MOVE_EXCEPTION', error, { worldId: item.worldId });
+        errors.push(`移動エラー (${item.worldId}): ${error.message}`);
       }
     }
 
     notifyProgress('phase2_complete', PHASE2_END, { count: movedCount, total: totalMove });
     if (DEBUG) console.log(`[SYNC_EXPORT] Phase 2 完了: ${movedCount}/${totalMove}件移動`);
 
-    // ========================================
-    // Phase 3: 追加 (70% → 90%)
-    // ========================================
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
     if (DEBUG) console.log('[SYNC_EXPORT] Phase 3: 追加処理 (' + totalAdd + '件)');
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
@@ -1079,14 +1068,17 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
     const PHASE3_RANGE = PHASE3_END - PHASE3_START;
 
     for (let i = 0; i < totalAdd; i++) {
+      if (windowId && checkAborted(windowId)) {
+        logAction('SYNC_CANCELLED', { phase: 'add', progress: i });
+        sendResponse({ success: false, cancelled: true });
+        return;
+      }
+
       const item = toAdd[i];
-      
-      // 🔥 v1.0.2: 個別アイテムごとに進捗を更新
       const progress = PHASE3_START + Math.floor((i / totalAdd) * PHASE3_RANGE);
       notifyProgress('phase3_adding', progress, { current: i + 1, total: totalAdd });
 
       try {
-        // private/deleted は追加不可
         if (item.releaseStatus === 'private' || item.releaseStatus === 'deleted') {
           if (DEBUG) console.log(`[SYNC_EXPORT] ⚠️ スキップ (${item.releaseStatus}): ${item.worldId}`);
           errors.push(`追加スキップ (${item.worldId}): ${item.releaseStatus}のため追加不可`);
@@ -1125,27 +1117,29 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
           errors.push(`追加失敗 (${item.worldId}): ${response.status}`);
         }
 
-        // 🔥 v1.0.2: 10件ごとにのみ待機
         if ((i + 1) % 10 === 0 || i === totalAdd - 1) {
           await sleep(SYNC_DELAY);
         }
       } catch (error) {
-        logError('SYNC_EXPORT_ADD_EXCEPTION', e, { worldId: item.worldId });
-        errors.push(`追加エラー (${item.worldId}): ${e.message}`);
+        logError('SYNC_EXPORT_ADD_EXCEPTION', error, { worldId: item.worldId });
+        errors.push(`追加エラー (${item.worldId}): ${error.message}`);
       }
     }
 
     notifyProgress('phase3_complete', PHASE3_END, { count: addedCount, total: totalAdd });
     if (DEBUG) console.log(`[SYNC_EXPORT] Phase 3 完了: ${addedCount}/${totalAdd}件追加`);
 
-    // ========================================
-    // Phase 4: favoriteRecordId の更新 (90% → 100%)
-    // ========================================
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
     if (DEBUG) console.log('[SYNC_EXPORT] Phase 4: favoriteRecordId 更新');
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
 
     notifyProgress('phase4_updating', 92);
+
+    if (windowId && checkAborted(windowId)) {
+      logAction('SYNC_CANCELLED', { phase: 'update_records' });
+      sendResponse({ success: false, cancelled: true });
+      return;
+    }
 
     const updatedVRCWorlds = [];
     let updateCount = 0;
@@ -1154,7 +1148,6 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
       const vrcData = vrcMap.get(localWorld.id);
 
       if (vrcData) {
-        // VRC側に存在する場合のみ favoriteRecordId を更新
         updatedVRCWorlds.push({
           ...localWorld,
           favoriteRecordId: vrcData.favoriteRecordId,
@@ -1166,11 +1159,9 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
           if (DEBUG) console.log(`[SYNC_EXPORT] 更新: ${localWorld.id} → ${vrcData.favoriteRecordId}`);
         }
       } else {
-        // 🔥 VRC側にない場合でもローカルに保持（Phase 3で失敗した可能性）
         updatedVRCWorlds.push(localWorld);
-        if (DEBUG) console.log(`[SYNC_EXPORT] VRC側未登録（ローカルに保持）: ${localWorld.id}`);
-        // エラーリストに追加（ユーザーに通知）
-        errors.push(`${localWorld.name || localWorld.id}: VRC側への反映が確認できませんでした（次回再試行してください）`);
+        if (DEBUG) console.log(`[SYNC_EXPORT] VRC側未登録(ローカルに保持): ${localWorld.id}`);
+        errors.push(`${localWorld.name || localWorld.id}: VRC側への反映が確認できませんでした(次回再試行してください)`);
       }
     }
 
@@ -1179,9 +1170,6 @@ async function syncAllFavorites(sendResponse, progressCallback = null) {
 
     notifyProgress('phase4_complete', 100);
 
-    // ========================================
-    // 完了
-    // ========================================
     if (DEBUG) console.log('[SYNC_EXPORT] ========================================');
     if (DEBUG) console.log('[SYNC_EXPORT] 完全同期完了');
     if (DEBUG) console.log('[SYNC_EXPORT] 削除:', removedCount, '件');

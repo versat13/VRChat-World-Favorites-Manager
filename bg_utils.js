@@ -1,4 +1,4 @@
-// bg_utils.js
+// bg_utils.js v1.2.0
 console.log('[Utils] Loaded');
 
 // ========================================
@@ -6,6 +6,21 @@ console.log('[Utils] Loaded');
 // ========================================
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * 文字列からハッシュコードを生成（分割保存キー用）
+ * @param {string} str - ハッシュ化する文字列
+ * @returns {number} ハッシュ値
+ */
+function hashCode(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return hash;
+}
 
 // ========================================
 // デバッグログ
@@ -26,6 +41,11 @@ function logError(action, error, data = null) {
     console.error(`[${timestamp}] [ERROR] ${action}:`, error);
   }
   if (data) console.log('Data:', data);
+  
+  // UNKNOWN_MESSAGE の場合はスタックトレースも出力
+  if (action === 'UNKNOWN_MESSAGE') {
+    console.trace('Stack trace for unknown message');
+  }
 }
 
 function logBatch(phase, data) {

@@ -34,6 +34,28 @@ function copyWorldURL(worldId) {
 }
 
 // ========================================
+// ワールド詳細取得ヘルパー関数
+// ========================================
+async function fetchWorldDetails(worldId) {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'getSingleWorldDetails',
+      worldId: worldId
+    });
+
+    if (response.success && response.world) {
+      return response.world;
+    } else {
+      console.error('Failed to fetch world details:', response.error);
+      return null;
+    }
+  } catch (error) {
+    console.error('Exception in fetchWorldDetails:', error);
+    return null;
+  }
+}
+
+// ========================================
 // ワールド詳細取得
 // ========================================
 async function refetchWorldDetails(worldId, folderId) {
@@ -49,7 +71,11 @@ async function refetchWorldDetails(worldId, folderId) {
       });
 
       if (response.success) {
-        showNotification(t('detailsUpdated'), 'success');
+        if (details.releaseStatus === 'deleted') {
+          showNotification(t('worldDeleted'), 'info');
+        } else {
+          showNotification(t('detailsUpdated'), 'success');
+        }
         await loadData();
         renderCurrentView();
       } else {
@@ -61,30 +87,6 @@ async function refetchWorldDetails(worldId, folderId) {
   } catch (error) {
     console.error('Failed to refetch world details:', error);
     showNotification(t('errorOccurred'), 'error');
-  }
-}
-
-/**
- * 🔥 統一: ワールド詳細取得関数(唯一の実装)
- * popup.js内の全ての箇所からこの関数を使用する
- */
-async function fetchWorldDetails(worldId) {
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: 'getSingleWorldDetails',
-      worldId: worldId
-    });
-
-    if (response.success && response.details) {
-      return response.details;
-    }
-
-    console.error(`Failed to fetch world ${worldId}:`, response.error);
-    return null;
-
-  } catch (error) {
-    console.error(`Error fetching world ${worldId}:`, error);
-    return null;
   }
 }
 
@@ -117,8 +119,12 @@ async function updateSelectedWorlds() {
         world: { ...details, folderId: world.folderId }
       });
 
-      if (response.success) successCount++;
-      else failCount++;
+      // 🔥 削除済みでも成功カウント
+      if (response.success) {
+        successCount++;
+      } else {
+        failCount++;
+      }
     } else {
       failCount++;
     }
@@ -151,7 +157,10 @@ async function fetchAllDetails(targetFolderId = null) {
     logAction('FETCH_DETAILS_ALL', { count: targetWorlds.length });
   }
 
-  const worldsWithoutDetails = targetWorlds.filter(w => !w.thumbnailImageUrl);
+  // 🔥 修正: キャッシュ済み（thumbnailImageUrlまたはreleaseStatus='deleted'）は除外
+  const worldsWithoutDetails = targetWorlds.filter(w =>
+    !w.thumbnailImageUrl && w.releaseStatus !== 'deleted'
+  );
 
   if (worldsWithoutDetails.length === 0) {
     showNotification(t('allDetailsFetched'), 'info');
@@ -188,8 +197,12 @@ async function fetchAllDetails(targetFolderId = null) {
         world: { ...details, folderId: world.folderId }
       });
 
-      if (response.success) successCount++;
-      else failCount++;
+      // 🔥 削除済みでも成功カウント
+      if (response.success) {
+        successCount++;
+      } else {
+        failCount++;
+      }
     } else {
       failCount++;
     }
@@ -218,7 +231,7 @@ async function fetchAllDetails(targetFolderId = null) {
 async function handleRefreshOrConfirm() {
   const refreshBtn = document.getElementById('refreshBtn');
   const refreshText = document.getElementById('refreshText');
-  
+
   if (!refreshBtn) {
     console.error('[handleRefreshOrConfirm] refreshBtn not found');
     return;
@@ -228,10 +241,10 @@ async function handleRefreshOrConfirm() {
   if (isEditingList) {
     const expectedMovedCount = editingBuffer.movedWorlds.length;
     const expectedDeletedCount = editingBuffer.deletedWorlds.length;
-    
-    logAction('COMMIT_START', { 
-      expectedMoved: expectedMovedCount, 
-      expectedDeleted: expectedDeletedCount 
+
+    logAction('COMMIT_START', {
+      expectedMoved: expectedMovedCount,
+      expectedDeleted: expectedDeletedCount
     });
     if (refreshText) {
       refreshText.textContent = t('commitInProgress');
@@ -251,28 +264,28 @@ async function handleRefreshOrConfirm() {
       if (response.success) {
         const actualMovedCount = response.movedCount || 0;
         const actualDeletedCount = response.deletedCount || 0;
-        
+
         if (actualMovedCount !== expectedMovedCount) {
           console.warn('[COMMIT] Moved count mismatch:', {
             expected: expectedMovedCount,
             actual: actualMovedCount
           });
         }
-        
+
         if (actualDeletedCount !== expectedDeletedCount) {
           console.warn('[COMMIT] Deleted count mismatch:', {
             expected: expectedDeletedCount,
             actual: actualDeletedCount
           });
         }
-        
+
         if (actualMovedCount === 0 && actualDeletedCount === 0) {
           showNotification(t('commitSuccessNoChanges'), 'info');
         } else {
           showNotification(
-            t('commitSuccess', { 
-              moved: actualMovedCount, 
-              deleted: actualDeletedCount 
+            t('commitSuccess', {
+              moved: actualMovedCount,
+              deleted: actualDeletedCount
             }),
             'success'
           );
@@ -303,7 +316,7 @@ async function handleRefreshOrConfirm() {
   refreshBtn.innerHTML = `🔃<span id="refreshText"> ${t('loadingView')}</span>`;
   refreshBtn.textContent = t('loadingText');
   refreshBtn.disabled = true;
-  
+
   try {
     await loadData();
     renderFolderTabs();
@@ -376,7 +389,7 @@ async function handleFolderDrop(toFolder, event) {
 
       if ((isVRCToVRC || isToVRC) &&
         (world.releaseStatus === 'private' || world.releaseStatus === 'deleted')) {
-        
+
         restrictedWorlds.push(world.name);
         skippedCount++;
         continue;
@@ -395,14 +408,14 @@ async function handleFolderDrop(toFolder, event) {
     if (restrictedWorlds.length > 0) {
       const names = restrictedWorlds.slice(0, 3).join('、');
       const more = restrictedWorlds.length > 3 ? ` 他${restrictedWorlds.length - 3}件` : '';
-      
+
       showNotification(t('privateWorldsCannotMoveWarning', { names, more }), 'warning');
     }
 
     if (movedCount > 0) {
       showNotification(t('worldsMovedConfirm', { count: movedCount }), 'info');
       logAction('DROP_SUCCESS', { movedCount, skippedCount, restrictedCount: restrictedWorlds.length });
-      
+
       selectedWorldIds.clear();
       renderFolderTabs();
       renderCurrentView();
@@ -434,7 +447,7 @@ function deleteSingleWorld(worldId, folderId) {
 
   const world = allWorlds.find(w => w.id === worldId);
   document.getElementById('deleteModalContent').textContent =
-    `「${world?.name || worldId}${t('deleteConfirm')}`;
+    t('deleteSingleConfirm', { name: world?.name || worldId });
 
   pendingDeleteAction = async () => {
     try {
@@ -466,7 +479,7 @@ function deleteSelectedWorlds() {
   if (selectedWorldIds.size === 0) return;
 
   document.getElementById('deleteModalContent').textContent =
-    `${selectedWorldIds.size}${t('deleteConfirm')}`;
+    t('deleteSelectedConfirm', { count: selectedWorldIds.size });
 
   pendingDeleteAction = async () => {
     try {
@@ -625,7 +638,7 @@ function openVRCFolderModal(folderId) {
  */
 async function fetchAllVRCFolders() {
   closeModal('vrcFolderModal');
-  
+
   try {
     await chrome.windows.create({
       url: chrome.runtime.getURL('popup2_vrc_bridge.html') + '?mode=fetch',
@@ -917,21 +930,21 @@ async function checkPendingWorldFromContext() {
 
     if (result.pendingWorldIdFromContext) {
       const worldId = result.pendingWorldIdFromContext;
-      
+
       // 即座にクリア（重複実行を防ぐ）
       await chrome.storage.local.remove('pendingWorldIdFromContext');
 
       logAction('CONTEXT_MENU_PENDING_DETECTED', { worldId });
-      
+
       // ワールド情報を取得
       const details = await fetchWorldDetails(worldId);
 
       if (details) {
         pendingWorldData = details;
-        
+
         // フォルダ選択モーダルを開く
         openAddWorldModalWithInput(worldId);
-        
+
         showNotification(t('fetchingWorldDetails') + ' → ' + details.name, 'success');
       } else {
         showNotification(t('worldDetailsFailed'), 'error');
@@ -1410,8 +1423,8 @@ async function handleFileImport(event) {
       // 完全バックアップの条件:
       // 1. meta.type が 'FULL_BACKUP' である
       // 2. または worlds, folders, vrcFolderData の3つすべてが存在する
-      const isFullBackup = data.meta?.type === 'FULL_BACKUP' || 
-                           (data.worlds && data.folders !== undefined && data.vrcFolderData !== undefined);
+      const isFullBackup = data.meta?.type === 'FULL_BACKUP' ||
+        (data.worlds && data.folders !== undefined && data.vrcFolderData !== undefined);
 
       if (isFullBackup) {
         // 🔥 データ検証
@@ -1434,7 +1447,7 @@ async function handleFileImport(event) {
 
         // 🔥 バージョン情報をログに記録（デバッグ用）
         const importVersion = data.meta?.version || data.version || 'unknown';
-        logAction('FULL_BACKUP_IMPORT_START', { 
+        logAction('FULL_BACKUP_IMPORT_START', {
           version: importVersion,
           worldCount: data.worlds.length,
           hasFolder: !!data.folders,
@@ -1482,15 +1495,15 @@ async function handleFileImport(event) {
       }
 
       importWorlds = data;
-      
+
       // 🔥 各ワールドの必須フィールドをチェック
       const invalidWorlds = importWorlds.filter(w => !w.id);
       if (invalidWorlds.length > 0) {
         logError('INVALID_WORLD_DATA', `${invalidWorlds.length} worlds missing id`);
         showNotification(
-          t('importFailedGeneral', { 
-            error: `${invalidWorlds.length} worlds have invalid data (missing id)` 
-          }), 
+          t('importFailedGeneral', {
+            error: `${invalidWorlds.length} worlds have invalid data (missing id)`
+          }),
           'error'
         );
         event.target.value = '';
@@ -1523,7 +1536,7 @@ async function handleFileImport(event) {
           thumbnailImageUrl: null
         });
       }
-      
+
       logAction('VRCX_IMPORT_PARSED', { totalLines: lines.length, validWorlds: importWorlds.length });
     }
 

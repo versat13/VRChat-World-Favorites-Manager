@@ -1,5 +1,90 @@
-// bg_storage_service.js
+// bg_storage_service.js v1.2.0
 console.log('[StorageService] Loaded');
+
+// ========================================
+// レート制限管理
+// ========================================
+
+class StorageRateLimiter {
+  constructor() {
+    this.writeCount = 0;
+    this.resetTime = Date.now() + 60000; // 1分後
+    this.maxWrites = 100; // 安全マージン(実際は120)
+  }
+
+  async checkAndWait() {
+    const now = Date.now();
+    
+    // 1分経過したらリセット
+    if (now >= this.resetTime) {
+      this.writeCount = 0;
+      this.resetTime = now + 60000;
+    }
+    
+    // 制限に達している場合は待機
+    if (this.writeCount >= this.maxWrites) {
+      const waitTime = this.resetTime - now;
+      logAction('RATE_LIMIT_WAIT', { 
+        waitMs: waitTime,
+        message: 'Waiting for rate limit reset'
+      });
+      
+      await sleep(waitTime + 1000); // 少し余裕を持たせる
+      
+      // リセット
+      this.writeCount = 0;
+      this.resetTime = Date.now() + 60000;
+    }
+    
+    this.writeCount++;
+  }
+}
+
+const rateLimiter = new StorageRateLimiter();
+
+// ========================================
+// ストレージラッパー関数(レート制限対応)
+// ========================================
+
+async function safeStorageSet(storageType, data) {
+  await rateLimiter.checkAndWait();
+  
+  try {
+    if (storageType === 'sync') {
+      await chrome.storage.sync.set(data);
+    } else {
+      await chrome.storage.local.set(data);
+    }
+    return { success: true };
+  } catch (error) {
+    if (error.message && error.message.includes('MAX_WRITE_OPERATIONS_PER_MINUTE')) {
+      logError('STORAGE_RATE_LIMIT', 'Rate limit exceeded, retrying after 60s');
+      await sleep(60000);
+      return safeStorageSet(storageType, data); // リトライ
+    }
+    throw error;
+  }
+}
+
+async function safeStorageRemove(storageType, keys) {
+  await rateLimiter.checkAndWait();
+  
+  try {
+    if (storageType === 'sync') {
+      await chrome.storage.sync.remove(keys);
+    } else {
+      await chrome.storage.local.remove(keys);
+    }
+    return { success: true };
+  } catch (error) {
+    if (error.message && error.message.includes('MAX_WRITE_OPERATIONS_PER_MINUTE')) {
+      logError('STORAGE_RATE_LIMIT', 'Rate limit exceeded, retrying after 60s');
+      await sleep(60000);
+      return safeStorageRemove(storageType, keys); // リトライ
+    }
+    throw error;
+  }
+}
 
 // ========================================
 // ストレージ初期化・統計
@@ -9,30 +94,30 @@ async function initializeStorage() {
   const sync = await chrome.storage.sync.get(['folders', 'vrcFolderData', 'worlds', 'worlds_0']);
   const local = await chrome.storage.local.get(['vrcWorlds', 'worldDetails']);
 
-  if (!sync.folders) await chrome.storage.sync.set({ folders: [] });
-  if (!local.vrcWorlds) await chrome.storage.local.set({ vrcWorlds: [] });
+  if (!sync.folders) await safeStorageSet('sync', { folders: [] });
+  if (!local.vrcWorlds) await safeStorageSet('local', { vrcWorlds: [] });
 
   // 旧形式のworldsが存在する場合、分割形式に移行
   if (sync.worlds && sync.worlds.length > 0) {
     logAction('MIGRATE_WORLDS_TO_CHUNKED', { count: sync.worlds.length });
     await saveWorldsChunked(sync.worlds);
-    await chrome.storage.sync.remove(['worlds']);
+    await safeStorageRemove('sync', ['worlds']);
   }
 
   // 分割形式が存在しない場合は初期化
   if (!sync.worlds_0) {
-    await chrome.storage.sync.set({ worlds_0: [] });
+    await safeStorageSet('sync', { worlds_0: [] });
   }
 
   // 旧形式のworldDetailsが存在する場合、分割形式に移行
   if (local.worldDetails && Object.keys(local.worldDetails).length > 0) {
     logAction('MIGRATE_WORLD_DETAILS', { count: Object.keys(local.worldDetails).length });
     await saveWorldDetailsBatch(local.worldDetails);
-    await chrome.storage.local.remove(['worldDetails']);
+    await safeStorageRemove('local', ['worldDetails']);
   }
 
   if (!sync.vrcFolderData) {
-    await chrome.storage.sync.set({ vrcFolderData: {} });
+    await safeStorageSet('sync', { vrcFolderData: {} });
   }
 }
 
@@ -72,27 +157,24 @@ async function getStorageStats(sendResponse) {
 }
 
 // ========================================
-// worldDetails保存ヘルパー（分割I/O）
+// worldDetails保存ヘルパー(レート制限対応)
 // ========================================
 
 async function saveWorldDetails(worldId, details) {
-  // 元のコードではランダムなキーに保存していたが、
-  // IDに基づいて決定論的なキーに保存する方が管理しやすい
-  const chunkIndex = Math.abs(worldId.split('').reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) | 0, 0)) % DETAILS_CHUNK_SIZE;
+  const chunkIndex = Math.abs(hashCode(worldId)) % DETAILS_CHUNK_SIZE;
   const chunkKey = `worldDetails_${chunkIndex}`;
 
   const local = await chrome.storage.local.get([chunkKey]);
   const chunk = local[chunkKey] || {};
   chunk[worldId] = details;
-  await chrome.storage.local.set({ [chunkKey]: chunk });
+  await safeStorageSet('local', { [chunkKey]: chunk });
 }
 
 async function saveWorldDetailsBatch(detailsMap) {
   const chunks = {};
 
   for (const [worldId, details] of Object.entries(detailsMap)) {
-    // IDに基づいて決定論的なキーを選択
-    const chunkIndex = Math.abs(worldId.split('').reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) | 0, 0)) % DETAILS_CHUNK_SIZE;
+    const chunkIndex = Math.abs(hashCode(worldId)) % DETAILS_CHUNK_SIZE;
     const chunkKey = `worldDetails_${chunkIndex}`;
 
     if (!chunks[chunkKey]) {
@@ -104,15 +186,14 @@ async function saveWorldDetailsBatch(detailsMap) {
   for (const [chunkKey, chunkData] of Object.entries(chunks)) {
     const local = await chrome.storage.local.get([chunkKey]);
     const existing = local[chunkKey] || {};
-    await chrome.storage.local.set({
+    await safeStorageSet('local', {
       [chunkKey]: { ...existing, ...chunkData }
     });
   }
 }
 
 async function getWorldDetails(worldId) {
-  // IDからキーを特定
-  const chunkIndex = Math.abs(worldId.split('').reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) | 0, 0)) % DETAILS_CHUNK_SIZE;
+  const chunkIndex = Math.abs(hashCode(worldId)) % DETAILS_CHUNK_SIZE;
   const chunkKey = `worldDetails_${chunkIndex}`;
 
   const local = await chrome.storage.local.get([chunkKey]);
@@ -133,14 +214,13 @@ async function getWorldDetails(worldId) {
 }
 
 async function deleteWorldDetails(worldId) {
-  // IDからキーを特定
-  const chunkIndex = Math.abs(worldId.split('').reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) | 0, 0)) % DETAILS_CHUNK_SIZE;
+  const chunkIndex = Math.abs(hashCode(worldId)) % DETAILS_CHUNK_SIZE;
   const chunkKey = `worldDetails_${chunkIndex}`;
 
   const local = await chrome.storage.local.get([chunkKey]);
   if (local[chunkKey] && local[chunkKey][worldId]) {
     delete local[chunkKey][worldId];
-    await chrome.storage.local.set({ [chunkKey]: local[chunkKey] });
+    await safeStorageSet('local', { [chunkKey]: local[chunkKey] });
     return;
   }
 
@@ -150,7 +230,7 @@ async function deleteWorldDetails(worldId) {
     const chunk = await chrome.storage.local.get([key]);
     if (chunk[key] && chunk[key][worldId]) {
       delete chunk[key][worldId];
-      await chrome.storage.local.set({ [key]: chunk[key] });
+      await safeStorageSet('local', { [key]: chunk[key] });
       return;
     }
   }
@@ -170,12 +250,9 @@ async function getAllWorldDetailsInternal() {
 }
 
 // ========================================
-// worlds分割保存ヘルパー
+// worlds分割保存ヘルパー(レート制限対応)
 // ========================================
 
-/**
- * worlds配列を分割して保存
- */
 async function saveWorldsChunked(worlds) {
   const chunks = {};
 
@@ -192,14 +269,14 @@ async function saveWorldsChunked(worlds) {
 
   // 新しいチャンクを保存
   for (const [key, value] of Object.entries(chunks)) {
-    await chrome.storage.sync.set({ [key]: value });
+    await safeStorageSet('sync', { [key]: value });
   }
 
   // 不要になった古いチャンクを削除
   const newChunkKeys = Object.keys(chunks);
   const keysToRemove = oldChunkKeys.filter(key => !newChunkKeys.includes(key));
   if (keysToRemove.length > 0) {
-    await chrome.storage.sync.remove(keysToRemove);
+    await safeStorageRemove('sync', keysToRemove);
   }
 
   logAction('WORLDS_CHUNKED_SAVED', {
@@ -208,9 +285,6 @@ async function saveWorldsChunked(worlds) {
   });
 }
 
-/**
- * 分割保存されたworlds配列を読み込み
- */
 async function loadWorldsChunked() {
   const sync = await chrome.storage.sync.get(null);
   const worlds = [];
@@ -226,68 +300,24 @@ async function loadWorldsChunked() {
   return worlds;
 }
 
-/**
- * 特定のワールドを追加（分割保存対応）
- */
 async function addWorldToChunkedStorage(worldId, folderId) {
   const worlds = await loadWorldsChunked();
   worlds.push({ id: worldId, folderId: folderId });
   await saveWorldsChunked(worlds);
 }
 
-/**
- * 特定のワールドを削除（分割保存対応）
- */
 async function removeWorldFromChunkedStorage(worldId) {
   const worlds = await loadWorldsChunked();
   const filtered = worlds.filter(w => w.id !== worldId);
   await saveWorldsChunked(filtered);
 }
 
-/**
- * 特定のワールドを更新（分割保存対応）
- */
 async function updateWorldInChunkedStorage(worldId, newFolderId) {
   const worlds = await loadWorldsChunked();
   const index = worlds.findIndex(w => w.id === worldId);
   if (index !== -1) {
     worlds[index].folderId = newFolderId;
     await saveWorldsChunked(worlds);
-  }
-}
-
-// ========================================
-// 初期化処理の修正
-// ========================================
-
-async function initializeStorage() {
-  const sync = await chrome.storage.sync.get(['folders', 'vrcFolderData', 'worlds', 'worlds_0']);
-  const local = await chrome.storage.local.get(['vrcWorlds', 'worldDetails']);
-
-  if (!sync.folders) await chrome.storage.sync.set({ folders: [] });
-  if (!local.vrcWorlds) await chrome.storage.local.set({ vrcWorlds: [] });
-
-  // 旧形式のworldsが存在する場合、分割形式に移行
-  if (sync.worlds && sync.worlds.length > 0) {
-    logAction('MIGRATE_WORLDS_TO_CHUNKED', { count: sync.worlds.length });
-    await saveWorldsChunked(sync.worlds);
-    await chrome.storage.sync.remove(['worlds']);
-  }
-
-  // 分割形式が存在しない場合は初期化
-  if (!sync.worlds_0) {
-    await chrome.storage.sync.set({ worlds_0: [] });
-  }
-
-  // 旧形式のworldDetailsが存在する場合、分割形式に移行
-  if (local.worldDetails && Object.keys(local.worldDetails).length > 0) {
-    logAction('MIGRATE_WORLD_DETAILS', { count: Object.keys(local.worldDetails).length });
-    await saveWorldDetailsBatch(local.worldDetails);
-    await chrome.storage.local.remove(['worldDetails']);
-  }
-
-  if (!sync.vrcFolderData) {
-    await chrome.storage.sync.set({ vrcFolderData: {} });
   }
 }
 

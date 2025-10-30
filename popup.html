@@ -6,9 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VRChat World Favorites Manager</title>
   <style>
-    /* ==================== カラーパレット（CSS変数） ==================== */
+    /* ==================== カラーパレット(CSS変数) ==================== */
     :root {
-      /* ダークテーマ（デフォルト） */
+      /* ダークテーマ(デフォルト) */
       --bg-primary: #0a0e1a;
       --bg-secondary: #0f1419;
       --bg-tertiary: #141920;
@@ -176,10 +176,13 @@
 
     /* ==================== リスト編集中バナー ==================== */
     .editing-banner {
-      position: fixed;
+      /* ★★★ 修正: 親要素 (main-content) を基準に固定 ★★★ */
+      position: absolute;
       bottom: 0;
       left: 0;
       right: 0;
+      z-index: 1000;
+
       display: flex;
       align-items: center;
       justify-content: center;
@@ -191,7 +194,6 @@
       border-top: 2px solid var(--warning-border);
       line-height: 1.2;
       animation: slide-up 0.3s ease-out;
-      z-index: 1000;
     }
 
     body.light-theme .editing-banner {
@@ -270,7 +272,13 @@
     }
 
     .main-content {
-      flex: 1;
+      /* 以前の flex 設定はそのまま残します */
+      flex-grow: 1;
+      flex-shrink: 1;
+      flex-basis: auto;
+
+      /* ★★★ 追記: バナーの固定基準にする ★★★ */
+      position: relative;
       display: flex;
       flex-direction: column;
       min-width: 0;
@@ -1324,43 +1332,31 @@
 
 <body class="popup-mode">
   <div class="container">
-    <!-- ヘッダー -->
     <div class="header">
       <h1 id="headerTitle">🌎 VRChat World Favorites Manager</h1>
       <div style="display: flex; gap: 8px; align-items: center;">
         <button class="open-window-btn" id="openOptionsBtn">⚙️</button>
-        <button class="open-window-btn" id="openWindowBtn">🪟 別ウィンドウで表示</button>
+        <button class="open-window-btn" id="openWindowBtn"><span id="openWindowBtnText">🪟 別ウィンドウで表示</span></button>
       </div>
     </div>
 
-    <!-- リスト編集中バナー -->
-    <div id="editingBanner" class="editing-banner" style="display: none;">
-      <span class="editing-icon">⚠️</span>
-      <span id="editingBannerText">リスト編集中 (<span class="change-count">0件の変更</span>)</span>
-    </div>
-
     <div style="display: flex; flex: 1; min-height: 0;">
-      <!-- サイドバー -->
       <div class="sidebar">
         <div class="folder-tabs" id="folderTabs"></div>
       </div>
 
-      <!-- メインコンテンツ -->
       <div class="main-content">
-        <!-- 検索バー -->
         <div class="search-wrapper">
           <input type="text" id="searchInput" placeholder="🔍 ワールド名・作者名・IDで検索...">
           <button id="searchClearBtn" class="search-clear-btn" style="display: none;">✕</button>
         </div>
 
-        <!-- 全選択トグル + 選択中操作 -->
         <div class="select-all-container">
           <div class="checkbox-wrapper" id="selectAllWrapper">
             <div class="custom-checkbox" id="selectAllCheckbox"></div>
             <span class="select-all-label" id="selectAllLabel">全選択</span>
           </div>
 
-          <!-- 並び替えドロップダウン -->
           <div class="sort-dropdown">
             <select id="sortSelect">
               <option value="added" id="sortAdded">追加順</option>
@@ -1370,7 +1366,6 @@
             <span class="sort-order" id="sortOrder">⇅</span>
           </div>
 
-          <!-- 右側: アイテム数と表示数 -->
           <div style="margin-left: auto; display: flex; gap: 12px; align-items: center;">
             <div class="pagination-info">
               <span id="totalItems">0</span> <span id="itemsText">items</span>
@@ -1382,14 +1377,12 @@
           </div>
         </div>
 
-        <!-- コンテンツエリア -->
         <div class="content">
           <div id="worldsList" class="worlds-list">
             <div class="empty-state" id="emptyState">Loading...</div>
           </div>
         </div>
 
-        <!-- ページネーション -->
         <div class="pagination">
           <div class="selection-actions" id="selectionActions">
             <span class="selection-count" id="selectionCount">選択中: 0個</span>
@@ -1407,7 +1400,6 @@
           </div>
         </div>
 
-        <!-- 全体操作バー -->
         <div class="actions">
           <button id="addWorldBtn">➕ <span id="addWorldText">ワールドを追加</span></button>
           <button id="fetchDetailsBtn">🖼️ <span id="fetchDetailsText">サムネイル取得</span></button>
@@ -1418,11 +1410,17 @@
           <button id="importBtn">📥 <span id="importText">インポート</span></button>
           <button id="exportBtn">📤 <span id="exportText">エクスポート</span></button>
         </div>
+
+        <div id="editingBanner" class="editing-banner" style="display: none;">
+          <span class="editing-icon">⚠️</span>
+          <span id="editingBannerTextContainer"><span id="editingBannerText">リスト編集中</span> (<span
+              class="change-count">0件の変更</span>)</span>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- モーダル類 (既存のHTMLをそのまま使用) -->
+  <!-- モーダル類 -->
   <!-- フォルダ名変更/削除モーダル -->
   <div id="renameFolderModal" class="modal">
     <div class="modal-content">
@@ -1434,33 +1432,33 @@
         <input type="text" id="folderNameInput" class="modal-input" placeholder="新しいフォルダ名を入力..." maxlength="30">
       </div>
       <div class="modal-actions">
-        <button id="deleteFolderBtn" class="btn-delete left">削除</button>
-        <button id="renameConfirm" class="btn-confirm">変更</button>
-        <button id="renameCancel" class="btn-cancel">キャンセル</button>
+        <button id="deleteFolderBtn" class="btn-delete left"><span id="deleteFolderBtnText">削除</span></button>
+        <button id="renameConfirm" class="btn-confirm"><span id="renameConfirmText">変更</span></button>
+        <button id="renameCancel" class="btn-cancel"><span id="renameCancelText">キャンセル</span></button>
       </div>
     </div>
   </div>
 
-  <!-- VRCフォルダ操作モーダル（同期機能のみ） -->
+  <!-- VRCフォルダ操作モーダル(同期機能のみ) -->
   <div id="vrcFolderModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
-        <span>🔄 VRChatと同期</span>
+        <span id="vrcFolderModalTitle">🔄 VRChatと同期</span>
         <span class="folder-id-badge" id="vrcFolderIdBadge"></span>
       </div>
       <div class="modal-body">
-        <p style="margin-bottom: 12px;">VRChat公式のお気に入りワールド一覧（4フォルダすべて）と同期します:</p>
-        <p style="margin-bottom: 8px; font-size: 11px; color: #888;">
+        <p id="vrcFolderDescription1" style="margin-bottom: 12px;">VRChat公式のお気に入りワールド一覧(4フォルダすべて)と同期します:</p>
+        <p id="vrcFolderWarning" style="margin-bottom: 8px; font-size: 11px; color: #888;">
           <strong>⚠️ 注意:</strong> 拡張機能で整理したワールド一覧をVRChat公式に反映します
         </p>
-        <p style="margin-bottom: 12px; font-size: 11px; color: #888;">
-          <strong>📥 取得:</strong> VRChat公式から全フォルダを取得（同期前の確認用）
+        <p id="vrcFolderFetchInfo" style="margin-bottom: 12px; font-size: 11px; color: #888;">
+          <strong>📥 取得:</strong> VRChat公式から全フォルダを取得(同期前の確認用)
         </p>
       </div>
       <div class="modal-actions">
-        <button id="vrcFetchBtn" class="btn-confirm">📥 取得</button>
-        <button id="vrcSyncBtn" class="btn-confirm">🔄 同期</button>
-        <button id="vrcCancelBtn" class="btn-cancel">キャンセル</button>
+        <button id="vrcFetchBtn" class="btn-confirm"><span id="vrcFetchBtnText">📥 取得</span></button>
+        <button id="vrcSyncBtn" class="btn-confirm"><span id="vrcSyncBtnText">🔄 同期</span></button>
+        <button id="vrcCancelBtn" class="btn-cancel"><span id="vrcCancelBtnText">キャンセル</span></button>
       </div>
     </div>
   </div>
@@ -1472,17 +1470,17 @@
       <div class="modal-body">
         <div class="import-export-options">
           <div class="import-export-option" data-type="json">
-            <div class="import-export-option-title">JSON形式</div>
-            <div class="import-export-option-desc">拡張機能の標準形式(全データ)</div>
+            <div class="import-export-option-title" id="importTypeJsonTitle">JSON形式</div>
+            <div class="import-export-option-desc" id="importTypeJsonDesc">拡張機能の標準形式(全データ)</div>
           </div>
           <div class="import-export-option" data-type="vrcx">
-            <div class="import-export-option-title">CSV形式</div>
-            <div class="import-export-option-desc">VRCX等(WorldID, World Name)/ワールド情報のみ</div>
+            <div class="import-export-option-title" id="importTypeCsvTitle">CSV形式</div>
+            <div class="import-export-option-desc" id="importTypeCsvDesc">VRCX等(WorldID, World Name)/ワールド情報のみ</div>
           </div>
         </div>
       </div>
       <div class="modal-actions">
-        <button id="importExportCancel" class="btn-cancel">キャンセル</button>
+        <button id="importExportCancel" class="btn-cancel"><span id="importExportCancelText">キャンセル</span></button>
       </div>
     </div>
   </div>
@@ -1490,13 +1488,13 @@
   <!-- 削除確認モーダル -->
   <div id="deleteModal" class="modal">
     <div class="modal-content">
-      <div class="modal-header">🗑️ 削除確認</div>
+      <div class="modal-header" id="deleteModalTitle">🗑️ 削除確認</div>
       <div class="modal-body">
         <strong id="deleteModalContent"></strong>
       </div>
       <div class="modal-actions">
-        <button id="deleteConfirm" class="btn-delete">削除</button>
-        <button id="deleteCancel" class="btn-cancel">キャンセル</button>
+        <button id="deleteConfirm" class="btn-delete"><span id="deleteConfirmText">削除</span></button>
+        <button id="deleteCancel" class="btn-cancel"><span id="deleteCancelText">キャンセル</span></button>
       </div>
     </div>
   </div>

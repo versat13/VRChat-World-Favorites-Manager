@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Settings - VRChat World Favorites Manager</title>
   <style>
-    /* ==================== カラーパレット（CSS変数） ==================== */
+    /* ==================== カラーパレット(CSS変数) ==================== */
     :root {
-      /* ダークテーマ（デフォルト） */
+      /* ダークテーマ(デフォルト) */
       --bg-primary: #0a0e1a;
       --bg-secondary: #0f1419;
       --bg-tertiary: #141920;
@@ -331,6 +331,16 @@
           
           <div class="setting-item">
             <div class="setting-info">
+              <div class="setting-label" id="autoResolveDuplicatesLabel">重複を自動修復</div>
+              <div class="setting-description" id="autoResolveDuplicatesDescription">データ更新時に重複が見つかった場合、自動的に解消します</div>
+            </div>
+            <div class="toggle-switch active" id="autoResolveDuplicatesToggle">
+              <div class="toggle-slider"></div>
+            </div>
+          </div>
+          
+          <div class="setting-item">
+            <div class="setting-info">
               <div class="setting-label" id="vrcSiteIntegrationLabel">VRChat公式サイト内にボタン追加</div>
               <div class="setting-description" id="vrcSiteIntegrationDescription">お気に入りワールド一覧ページやユーザーページで削除ボタンなどを追加する<br><small style="color: var(--text-tertiary); font-style: italic;">※設定変更後、VRChatのページをリロードしてください</small></div>
             </div>
@@ -404,7 +414,7 @@
     </div>
 
     <div class="footer">
-      <div class="footer-info" id="footerInfo">Version 1.1.0</div>
+      <div class="footer-info" id="footerInfo">Version 1.2.0</div>
     </div>
   </div>
 
