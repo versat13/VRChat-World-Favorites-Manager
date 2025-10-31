@@ -20,7 +20,10 @@
       "128": "icons/icon128.png"
     }
   },
-  "options_page": "options_page.html", 
+  "options_ui": {
+    "page": "options_page.html",
+    "open_in_tab": true
+  },
   "content_scripts": [
     {
       "matches": [

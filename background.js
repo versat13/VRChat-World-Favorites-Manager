@@ -1,5 +1,5 @@
-// background.js v1.2.0 (前半)
-console.log('[Background] VRChat World Favorites Manager v1.2.0 (Modular) loaded');
+// background.js v1.2.0
+console.log('[Background] VRChat World Favorites Manager v1.2.0 loaded');
 
 // ========================================
 // モジュール読み込み
@@ -42,14 +42,9 @@ function cleanupVRCAction(windowId) {
 // コンテキストメニュー初期化・管理
 // ========================================
 
-// コンテキストメニュー初期化の多重実行を防ぐフラグ
 let isInitializingContextMenus = false;
 
-/**
- * コンテキストメニューを初期化する(重複防止処理付き)
- */
 async function initializeContextMenus() {
-  // 既に初期化中の場合はスキップ
   if (isInitializingContextMenus) {
     logAction('CONTEXT_MENU_INIT_SKIP', 'Already initializing');
     return;
@@ -58,7 +53,6 @@ async function initializeContextMenus() {
   isInitializingContextMenus = true;
 
   try {
-    // 既存のメニューを完全に削除
     await chrome.contextMenus.removeAll();
     logAction('CONTEXT_MENU_REMOVED_ALL', 'Cleared all existing context menus');
 
@@ -100,7 +94,6 @@ async function initializeContextMenus() {
     logAction('CONTEXT_MENU_CREATED', { id: 'vrchat-fav-add-select' });
 
   } catch (error) {
-    // エラー時もメニューを一度クリア
     await chrome.contextMenus.removeAll().catch(() => { });
     logError('CONTEXT_MENU_INIT_ERROR', error);
   } finally {
@@ -174,7 +167,6 @@ async function handleQuickAdd(info, tab) {
       showNotification(`「${details.name}」を未分類に追加しました`, 'success');
       logAction('CONTEXT_MENU_QUICK_ADD_SUCCESS', { worldId });
     } else {
-      // 🔥 修正: エラーハンドラーから返されたメッセージを使用
       showNotification(addResult.message || '追加に失敗しました', 'error');
       logError('CONTEXT_MENU_QUICK_ADD_FAILED', addResult.reason || addResult.error, { worldId });
     }
@@ -279,7 +271,6 @@ function notifyBridgeWindow(windowId, action, payload = {}) {
   }
 
   if (isVRCActionAborted(windowId)) {
-    console.log('[Background] Skipping notification (action aborted):', action);
     return;
   }
 
@@ -303,6 +294,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   logAction('MESSAGE_RECEIVED', { type: request.type });
 
   switch (request.type) {
+    // 🔥 VRC同期完了通知 (popup.html向けなので無視)
+    case 'VRC_SYNC_COMPLETED':
+      // このメッセージはpopup.html向けなのでbackgroundでは処理不要
+      // エラーログを出さないために明示的にハンドル
+      sendResponse({ received: true });
+      return true;
+
     case 'getAllWorlds':
       getAllWorlds(sendResponse);
       return true;
@@ -325,7 +323,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       batchUpdateWorlds(request.changes, sendResponse);
       return true;
     case 'COMMIT_BUFFER':
-      commitBuffer(request, sendResponse);
+      commitBuffer(request, sendResponse, (progress) => {
+        // popup にリアルタイム通知
+        chrome.runtime.sendMessage(progress).catch(e => {
+          console.warn('Failed to send progress to popup:', e.message);
+        });
+      });
+      return true;
+    case 'CHECK_RATE_LIMIT':
+      const waitMs = rateLimiter.getWaitTime();
+      sendResponse({
+        needsWait: waitMs > 0,
+        waitSeconds: Math.ceil(waitMs / 1000)
+      });
       return true;
     case 'detectDuplicates':
       detectDuplicates(sendResponse);
@@ -403,7 +413,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // ========================================
-// VRCアクションハンドラー (修正版)
+// VRCアクションハンドラー
 // ========================================
 
 function handleVRCAction(request, sendResponse) {
@@ -434,7 +444,6 @@ async function startVRCActionAsync(actionType, windowId) {
       (action, payload) => notifyBridgeWindow(windowId, action, payload)
     );
 
-    // 🔥 完了通知を追加
     if (!isVRCActionAborted(windowId)) {
       notifyBridgeWindow(windowId, 'VRC_ACTION_COMPLETE', result);
     }

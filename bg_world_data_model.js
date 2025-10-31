@@ -325,7 +325,7 @@ async function moveWorld(worldId, fromFolder, toFolder, newFavoriteRecordId, sen
 // ワールドCRUD (バッチ)
 // ========================================
 
-async function batchUpdateWorlds(changes, sendResponse) {
+async function batchUpdateWorlds(changes, sendResponse, progressCallback = null) {
   logBatch('START', {
     movedCount: changes.movedWorlds?.length || 0,
     deletedCount: changes.deletedWorlds?.length || 0
@@ -356,7 +356,7 @@ async function batchUpdateWorlds(changes, sendResponse) {
       const batch = allChanges.slice(i, i + BATCH_SIZE.sync);
       logBatch('UNIFIED_BATCH', { batch: i / BATCH_SIZE.sync + 1, size: batch.length });
 
-      const result = await processUnifiedBatch(batch);
+      const result = await processUnifiedBatch(batch, progressCallback);
       
       movedSuccessCount += result.movedSuccess || 0;
       deletedSuccessCount += result.deletedSuccess || 0;
@@ -388,7 +388,7 @@ async function batchUpdateWorlds(changes, sendResponse) {
   }
 }
 
-async function processUnifiedBatch(batch) {
+async function processUnifiedBatch(batch, progressCallback = null) {
   logBatch('UNIFIED_BATCH_START', { size: batch.length });
 
   try {
@@ -564,10 +564,10 @@ async function processUnifiedBatch(batch) {
 
     try {
       if (syncModified) {
-        await saveWorldsChunked(syncWorlds);
+        await saveWorldsChunked(syncWorlds, progressCallback);
       }
       if (vrcModified) {
-        await chrome.storage.local.set({ vrcWorlds });
+        await safeStorageSet('local', { vrcWorlds }, progressCallback);
       }
     } catch (storageError) {
       if (storageError.message && storageError.message.includes('MAX_WRITE_OPERATIONS_PER_MINUTE')) {
@@ -608,8 +608,8 @@ async function processUnifiedBatch(batch) {
   }
 }
 
-async function commitBuffer(request, sendResponse) {
-  await batchUpdateWorlds(request.changes, sendResponse);
+async function commitBuffer(request, sendResponse, progressCallback = null) {
+  await batchUpdateWorlds(request.changes, sendResponse, progressCallback);
 }
 
 // ========================================

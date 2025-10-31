@@ -1,4 +1,4 @@
-// bg_vrc_api_service.js v1.2.0
+// bg_vrc_api_service.js v1.2.0 (前半)
 console.log('[VrcApiService] Loaded');
 
 // ========================================

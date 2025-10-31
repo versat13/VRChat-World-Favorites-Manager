@@ -1,4 +1,4 @@
-// popup_actions.js
+// popup_actions.js v1.2.0
 // ========================================
 // ワールド操作 (個別)
 // ========================================
@@ -119,7 +119,6 @@ async function updateSelectedWorlds() {
         world: { ...details, folderId: world.folderId }
       });
 
-      // 🔥 削除済みでも成功カウント
       if (response.success) {
         successCount++;
       } else {
@@ -157,7 +156,6 @@ async function fetchAllDetails(targetFolderId = null) {
     logAction('FETCH_DETAILS_ALL', { count: targetWorlds.length });
   }
 
-  // 🔥 修正: キャッシュ済み（thumbnailImageUrlまたはreleaseStatus='deleted'）は除外
   const worldsWithoutDetails = targetWorlds.filter(w =>
     !w.thumbnailImageUrl && w.releaseStatus !== 'deleted'
   );
@@ -197,7 +195,6 @@ async function fetchAllDetails(targetFolderId = null) {
         world: { ...details, folderId: world.folderId }
       });
 
-      // 🔥 削除済みでも成功カウント
       if (response.success) {
         successCount++;
       } else {
@@ -226,18 +223,16 @@ async function fetchAllDetails(targetFolderId = null) {
 }
 
 // ========================================
-// リスト編集中の状態管理 (コミット処理) - 🔥 修正版
+// リスト編集中の状態管理 (コミット処理)
 // ========================================
 async function handleRefreshOrConfirm() {
   const refreshBtn = document.getElementById('refreshBtn');
   const refreshText = document.getElementById('refreshText');
 
   if (!refreshBtn) {
-    console.error('[handleRefreshOrConfirm] refreshBtn not found');
     return;
   }
 
-  // 🔥 編集中の場合、先にコミット処理を実行
   if (isEditingList) {
     const expectedMovedCount = editingBuffer.movedWorlds.length;
     const expectedDeletedCount = editingBuffer.deletedWorlds.length;
@@ -266,14 +261,14 @@ async function handleRefreshOrConfirm() {
         const actualDeletedCount = response.deletedCount || 0;
 
         if (actualMovedCount !== expectedMovedCount) {
-          console.warn('[COMMIT] Moved count mismatch:', {
+          logError('COMMIT_COUNT_MISMATCH', 'Moved count mismatch', {
             expected: expectedMovedCount,
             actual: actualMovedCount
           });
         }
 
         if (actualDeletedCount !== expectedDeletedCount) {
-          console.warn('[COMMIT] Deleted count mismatch:', {
+          logError('COMMIT_COUNT_MISMATCH', 'Deleted count mismatch', {
             expected: expectedDeletedCount,
             actual: actualDeletedCount
           });
@@ -327,13 +322,11 @@ async function handleRefreshOrConfirm() {
     logError('REFRESH_FAILED', error);
     showNotification(t('reloadFailed'), 'error');
   } finally {
-    // 🔥 成功・失敗問わず必ずボタン状態を復元
     if (!isEditingList) {
       refreshBtn.innerHTML = `🔃<span id="refreshText"> ${t('reload')}</span>`;
       refreshBtn.classList.remove('confirm-button');
       refreshBtn.disabled = false;
     }
-    // 編集中の場合は updateEditingState() に任せる
   }
 }
 
@@ -387,6 +380,14 @@ async function handleFolderDrop(toFolder, event) {
       const world = allWorlds.find(w => w.id === worldId);
       if (!world) continue;
 
+      // 🔥 削除済みチェック追加
+      const isDeleted = editingBuffer.deletedWorlds.some(d => d.worldId === worldId);
+      if (isDeleted) {
+        logAction('SKIP_DELETED_WORLD', { worldId });
+        skippedCount++;
+        continue;
+      }
+
       if ((isVRCToVRC || isToVRC) &&
         (world.releaseStatus === 'private' || world.releaseStatus === 'deleted')) {
 
@@ -394,6 +395,9 @@ async function handleFolderDrop(toFolder, event) {
         skippedCount++;
         continue;
       }
+
+      // 🔥 既存の移動を上書き（重複移動の防止）
+      editingBuffer.movedWorlds = editingBuffer.movedWorlds.filter(m => m.worldId !== worldId);
 
       editingBuffer.movedWorlds.push({
         worldId,
@@ -407,7 +411,7 @@ async function handleFolderDrop(toFolder, event) {
 
     if (restrictedWorlds.length > 0) {
       const names = restrictedWorlds.slice(0, 3).join('、');
-      const more = restrictedWorlds.length > 3 ? ` 他${restrictedWorlds.length - 3}件` : '';
+      const more = restrictedWorlds.length > 3 ? t('andOthers', { count: restrictedWorlds.length - 3 }) : '';
 
       showNotification(t('privateWorldsCannotMoveWarning', { names, more }), 'warning');
     }
@@ -633,9 +637,6 @@ function openVRCFolderModal(folderId) {
   openModal('vrcFolderModal');
 }
 
-/**
- * VRCフォルダモーダルの「取得」ボタン - ブリッジウィンドウを開く
- */
 async function fetchAllVRCFolders() {
   closeModal('vrcFolderModal');
 
@@ -652,19 +653,12 @@ async function fetchAllVRCFolders() {
   }
 }
 
-/**
- * VRCフォルダモーダルの「同期」ボタン - openSyncMenu() にリダイレクト
- */
 async function syncAllFavorites() {
   closeModal('vrcFolderModal');
   await openSyncMenu();
 }
 
-/**
- * 🔥 修正: ブリッジウィンドウを開く統一メソッド
- */
 async function openSyncMenu() {
-  // 1. 100件超えチェック
   const over100Folders = vrcFolders.filter(folder => {
     const count = allWorlds.filter(w => w.folderId === folder.id).length;
     return count > 100;
@@ -676,7 +670,6 @@ async function openSyncMenu() {
     return;
   }
 
-  // 2. ブリッジウィンドウを開く
   try {
     await chrome.windows.create({
       url: chrome.runtime.getURL('popup2_vrc_bridge.html') + '?mode=reflect',
@@ -722,11 +715,11 @@ async function addWorldManual() {
           initialValue = clipboardText.trim();
         }
       } catch (e) {
-        console.log('Clipboard access denied or empty');
+        logAction('Clipboard access denied', e.message);
       }
     }
   } catch (error) {
-    console.error('Failed to check current page/clipboard:', error);
+    logError('Failed to check current page/clipboard', error);
   }
 
   openAddWorldModalWithInput(initialValue);
@@ -931,18 +924,15 @@ async function checkPendingWorldFromContext() {
     if (result.pendingWorldIdFromContext) {
       const worldId = result.pendingWorldIdFromContext;
 
-      // 即座にクリア（重複実行を防ぐ）
       await chrome.storage.local.remove('pendingWorldIdFromContext');
 
       logAction('CONTEXT_MENU_PENDING_DETECTED', { worldId });
 
-      // ワールド情報を取得
       const details = await fetchWorldDetails(worldId);
 
       if (details) {
         pendingWorldData = details;
 
-        // フォルダ選択モーダルを開く
         openAddWorldModalWithInput(worldId);
 
         showNotification(t('fetchingWorldDetails') + ' → ' + details.name, 'success');
@@ -1010,6 +1000,14 @@ async function confirmMoveFolderWithId(toFolder) {
         continue;
       }
 
+      // 🔥 削除済みチェック追加
+      const isDeleted = editingBuffer.deletedWorlds.some(d => d.worldId === worldId);
+      if (isDeleted) {
+        logAction('SKIP_DELETED_WORLD', { worldId });
+        skippedCount++;
+        continue;
+      }
+
       const isVRCToVRC = fromFolder.startsWith('worlds') && toFolder.startsWith('worlds');
       const isToVRC = toFolder.startsWith('worlds');
 
@@ -1019,6 +1017,9 @@ async function confirmMoveFolderWithId(toFolder) {
         skippedCount++;
         continue;
       }
+
+      // 🔥 既存の移動を上書き（重複移動の防止）
+      editingBuffer.movedWorlds = editingBuffer.movedWorlds.filter(m => m.worldId !== worldId);
 
       editingBuffer.movedWorlds.push({
         worldId,
@@ -1032,7 +1033,7 @@ async function confirmMoveFolderWithId(toFolder) {
 
     if (restrictedWorlds.length > 0) {
       const names = restrictedWorlds.slice(0, 3).join('、');
-      const more = restrictedWorlds.length > 3 ? ` 他${restrictedWorlds.length - 3}件` : '';
+      const more = restrictedWorlds.length > 3 ? t('andOthers', { count: restrictedWorlds.length - 3 }) : '';
       showNotification(t('privateWorldsCannotMoveWarning', { names, more }), 'warning');
     }
 
@@ -1315,10 +1316,11 @@ function openFolderSelectForExport(type) {
       await executeExport(type, folderId);
     },
     onCancel: () => {
-      console.log('Export cancelled');
+      logAction('Export cancelled', { type });
     }
   });
 }
+// popup_actions.js v1.2.0 (後半)
 
 function openFolderSelectForImport(type) {
   const folderOptions = generateFolderOptions(false, false);
@@ -1332,7 +1334,7 @@ function openFolderSelectForImport(type) {
       document.getElementById('importFile').click();
     },
     onCancel: () => {
-      console.log('Import cancelled');
+      logAction('Import cancelled', { type });
     }
   });
 }
@@ -1401,7 +1403,7 @@ function getDateString() {
 }
 
 // ========================================
-// ファイルインポート
+// ファイルインポート - 🔥 修正版 (重複解消追加)
 // ========================================
 async function handleFileImport(event) {
   const file = event.target.files[0];
@@ -1419,15 +1421,10 @@ async function handleFileImport(event) {
     if (type === 'json') {
       const data = JSON.parse(text);
 
-      // 🔥 修正: データ形式で判定（バージョン番号に依存しない）
-      // 完全バックアップの条件:
-      // 1. meta.type が 'FULL_BACKUP' である
-      // 2. または worlds, folders, vrcFolderData の3つすべてが存在する
       const isFullBackup = data.meta?.type === 'FULL_BACKUP' ||
         (data.worlds && data.folders !== undefined && data.vrcFolderData !== undefined);
 
       if (isFullBackup) {
-        // 🔥 データ検証
         if (!data.worlds || !Array.isArray(data.worlds)) {
           showNotification(t('importFailedGeneral', { error: 'Invalid backup data: worlds array missing' }), 'error');
           event.target.value = '';
@@ -1445,7 +1442,6 @@ async function handleFileImport(event) {
           return;
         }
 
-        // 🔥 バージョン情報をログに記録（デバッグ用）
         const importVersion = data.meta?.version || data.version || 'unknown';
         logAction('FULL_BACKUP_IMPORT_START', {
           version: importVersion,
@@ -1456,7 +1452,6 @@ async function handleFileImport(event) {
 
         showNotification(t('importRestoring'), 'info');
 
-        // 互換性のための旧形式対応（syncWorlds, vrcWorlds）
         const worldsToImport = data.worlds || [...(data.syncWorlds || []), ...(data.vrcWorlds || [])];
 
         const response = await chrome.runtime.sendMessage({
@@ -1487,7 +1482,6 @@ async function handleFileImport(event) {
         return;
       }
 
-      // 🔥 部分インポート（ワールド配列のみ）
       if (!Array.isArray(data)) {
         showNotification(t('importFailedGeneral', { error: 'Invalid format: expected array of worlds' }), 'error');
         event.target.value = '';
@@ -1496,7 +1490,6 @@ async function handleFileImport(event) {
 
       importWorlds = data;
 
-      // 🔥 各ワールドの必須フィールドをチェック
       const invalidWorlds = importWorlds.filter(w => !w.id);
       if (invalidWorlds.length > 0) {
         logError('INVALID_WORLD_DATA', `${invalidWorlds.length} worlds missing id`);
@@ -1511,7 +1504,6 @@ async function handleFileImport(event) {
       }
 
     } else if (type === 'vrcx') {
-      // 🔥 VRCXインポート（CSV形式）
       const lines = text.split('\n').filter(line => line.trim());
 
       if (lines.length === 0) {
@@ -1549,7 +1541,6 @@ async function handleFileImport(event) {
     logAction('FILE_IMPORT_PARSED', { count: importWorlds.length });
     showNotification(t('importingWorlds', { count: importWorlds.length }), 'info');
 
-    // 部分インポート
     const response = await chrome.runtime.sendMessage({
       type: 'batchImportWorlds',
       worlds: importWorlds,
@@ -1566,10 +1557,16 @@ async function handleFileImport(event) {
       renderFolderTabs();
       renderCurrentView();
 
+      // 🔥 インポート後に重複自動解消を実行
       if (response.addedCount > 0) {
         showNotification(t('fetchingThumbnails'), 'info');
         setTimeout(() => {
           fetchAllDetails(targetFolder);
+          
+          // 🔥 重複自動解消を追加
+          if (autoResolveDuplicates) {
+            setTimeout(() => autoResolveDuplicatesIfNeeded(), 2000);
+          }
         }, 1000);
       }
     } else {

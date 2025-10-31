@@ -1,5 +1,6 @@
-// ========================================
 // popup2_vrc_bridge.js v1.2.0
+// ========================================
+// VRC同期ブリッジウィンドウ
 // ========================================
 
 const translations = {
@@ -174,7 +175,6 @@ let autoCloseTimer = null;
 
 window.addEventListener('beforeunload', () => {
   if (bridgeWindowId !== null) {
-    console.log('[Bridge] Window closing, sending cancel request');
     chrome.runtime.sendMessage({
       type: 'CANCEL_VRC_ACTION',
       windowId: bridgeWindowId
@@ -193,7 +193,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   chrome.windows.getCurrent({ populate: false }, (window) => {
     bridgeWindowId = window.id;
-    console.log('[Bridge] Window ID:', bridgeWindowId);
   });
 
   const mode = new URLSearchParams(window.location.search).get('mode');
@@ -213,7 +212,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.windowId !== bridgeWindowId) return false;
 
-    console.log('[Bridge] Received message:', request.action, request);
     switch (request.action) {
       case 'VRC_ACTION_PROGRESS':
         const translatedMessage = t(request.message, request);
@@ -234,13 +232,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function startVrcAction(type) {
-  console.log('[Bridge] Starting action:', type);
-  
-  // 🔥 カウントダウン中断処理を追加
   if (autoCloseTimer) {
     clearTimeout(autoCloseTimer);
     autoCloseTimer = null;
-    console.log('[Bridge] Auto-close countdown cancelled');
   }
   
   setUIBusy(true);
@@ -254,16 +248,14 @@ function startVrcAction(type) {
     windowId: bridgeWindowId
   }, (response) => {
     if (chrome.runtime.lastError) {
-      console.error('[Bridge] Runtime error:', chrome.runtime.lastError);
+      console.error('Runtime error:', chrome.runtime.lastError);
       handleError(t('actionErrorStart') + chrome.runtime.lastError.message);
       return;
     }
     if (response && response.error) {
-      console.error('[Bridge] Action error:', response.error);
+      console.error('Action error:', response.error);
       handleError(response.error);
-      return;
     }
-    console.log('[Bridge] Action started successfully');
   });
 }
 
@@ -297,7 +289,6 @@ function updateProgress(percent) {
 }
 
 function handleComplete(result) {
-  console.log('[Bridge] Action completed:', result);
   setUIBusy(false);
   updateProgress(100);
 
@@ -323,24 +314,21 @@ function handleComplete(result) {
 
   updateStatus(message, false);
   
-  // 🔥 popup.htmlに同期完了通知を送信
   chrome.runtime.sendMessage({
     type: 'VRC_SYNC_COMPLETED',
-    actionType: result.actionType || 'UNKNOWN', // 'FETCH' or 'REFLECT'
+    actionType: result.actionType || 'UNKNOWN',
     addedCount: result.addedCount || 0,
     movedCount: result.movedCount || 0,
     removedCount: result.removedCount || 0
   }).catch(err => {
-    console.warn('[Bridge] Failed to notify popup:', err);
+    console.warn('Failed to notify popup:', err);
   });
-  
-  console.log('[Bridge] Sent VRC_SYNC_COMPLETED notification to popup.html');
   
   scheduleAutoClose();
 }
 
 function handleError(error) {
-  console.error('[Bridge] Action error:', error);
+  console.error('Action error:', error);
   setUIBusy(false);
   updateProgress(0);
   updateStatus(t('actionError'), true, error);
@@ -380,7 +368,7 @@ function closeWindow() {
   try {
     window.close();
   } catch (e) {
-    console.warn('[Bridge] Failed to close window:', e);
+    console.warn('Failed to close window:', e);
     ERROR_MESSAGE.textContent = t('closeWindow');
     ERROR_MESSAGE.style.display = 'block';
     ERROR_MESSAGE.style.color = 'var(--accent-primary)';

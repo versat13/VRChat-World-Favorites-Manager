@@ -313,6 +313,10 @@
       .content {
         grid-template-columns: 1fr;
       }
+      
+      .section {
+        min-height: auto; /* 高さを内容に合わせる */
+      }
     }
   </style>
 </head>
@@ -331,8 +335,8 @@
           
           <div class="setting-item">
             <div class="setting-info">
-              <div class="setting-label" id="autoResolveDuplicatesLabel">重複を自動修復</div>
-              <div class="setting-description" id="autoResolveDuplicatesDescription">データ更新時に重複が見つかった場合、自動的に解消します</div>
+              <div class="setting-label" id="autoResolveDuplicatesLabel">ワールドデータ重複の自動修復</div>
+              <div class="setting-description" id="autoResolveDuplicatesDescription">エラーによるデータ重複を『再表示』ボタンで修復する</div>
             </div>
             <div class="toggle-switch active" id="autoResolveDuplicatesToggle">
               <div class="toggle-slider"></div>
@@ -342,7 +346,7 @@
           <div class="setting-item">
             <div class="setting-info">
               <div class="setting-label" id="vrcSiteIntegrationLabel">VRChat公式サイト内にボタン追加</div>
-              <div class="setting-description" id="vrcSiteIntegrationDescription">お気に入りワールド一覧ページやユーザーページで削除ボタンなどを追加する<br><small style="color: var(--text-tertiary); font-style: italic;">※設定変更後、VRChatのページをリロードしてください</small></div>
+              <div class="setting-description" id="vrcSiteIntegrationDescription">公式サイト内のワールド情報に削除ボタンなどを追加する</div>
             </div>
             <div class="toggle-switch active" id="vrcSiteIntegrationToggle">
               <div class="toggle-slider"></div>
@@ -351,8 +355,8 @@
 
           <div class="setting-item">
             <div class="setting-info">
-              <div class="setting-label" id="contextMenuLabel">コンテキストメニュー</div>
-              <div class="setting-description" id="contextMenuDescription">右クリックメニューからURL追加</div>
+              <div class="setting-label" id="contextMenuLabel">コンテキストメニューの追加</div>
+              <div class="setting-description" id="contextMenuDescription">ワールドのURLリンクへの右クリックメニューを追加する</div>
             </div>
             <div class="toggle-switch active" id="contextMenuToggle">
               <div class="toggle-slider"></div>
@@ -399,7 +403,7 @@
               <div class="setting-label" id="resetLabel">設定リセット</div>
               <div class="setting-description" id="resetDescription">オプション内の設定をデフォルトに戻す</div>
             </div>
-            <button class="btn" id="resetBtn">実行</button>
+            <button class="btn" id="resetBtn"></button>
           </div>
           
           <div class="setting-item">
@@ -407,7 +411,7 @@
               <div class="setting-label" id="resetDataLabel">保存データを全削除</div>
               <div class="setting-description" id="resetDataDescription">保存されているすべてのワールドおよびフォルダを削除する</div>
             </div>
-            <button class="btn btn-danger" id="resetDataBtn">全削除</button>
+            <button class="btn btn-danger" id="resetDataBtn"></button>
           </div>
         </div>
       </div>

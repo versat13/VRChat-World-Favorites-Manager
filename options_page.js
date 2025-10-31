@@ -13,25 +13,28 @@ const translations = {
     languageLabel: '言語 / Language',
     languageDescription: '表示言語を選択',
     featuresTitle: '⚡ 機能',
-    autoResolveDuplicatesLabel: '重複を自動修復',
-    autoResolveDuplicatesDescription: 'データ更新時に重複が見つかった場合、自動的に解消します',
+    autoResolveDuplicatesLabel: 'ワールドデータ重複の自動修復',
+    autoResolveDuplicatesDescription: 'エラーによるデータ重複を『再表示』ボタンで修復する',
     vrcSiteIntegrationLabel: 'VRChat公式サイト内にボタン追加',
-    vrcSiteIntegrationDescription: 'お気に入りワールド一覧ページやユーザーページで削除ボタンなどを追加する\n※設定変更後、VRChatのページをリロードしてください',
-    contextMenuLabel: 'コンテキストメニュー',
-    contextMenuDescription: '右クリックメニューからURL追加',
+    vrcSiteIntegrationDescription: '公式サイト内のワールド情報に削除ボタンなどを追加する',
+    contextMenuLabel: 'コンテキストメニューの追加',
+    contextMenuDescription: 'ワールドのURLリンクへの右クリックメニューを追加する',
     dataTitle: '💾 データ管理',
     resetLabel: '設定リセット',
     resetDescription: 'オプション内の設定をデフォルトに戻す',
-    resetBtn: '実行',
+    resetBtnText: '実行',
     resetDataLabel: '保存データを全削除',
     resetDataDescription: '保存されているすべてのワールドおよびフォルダを削除する',
-    resetDataBtn: '全削除',
+    resetDataBtnText: '全削除',
     footerInfo: 'Version 1.2.0',
     saveSuccess: '設定を保存しました',
+    saveFailed: '設定の保存に失敗しました',
     resetConfirm: '本当にすべての設定をリセットしますか？',
     resetSuccess: '設定をリセットしました',
     resetDataConfirm: '本当にすべてのワールドとフォルダのデータをリセットしますか？この操作は元に戻せません。（設定は残ります）',
-    resetDataSuccess: 'すべてのデータをリセットしました'
+    resetDataSuccess: 'すべてのデータをリセットしました',
+    resetDataFailed: 'データの削除に失敗しました',
+    contextMenuUpdateFailed: 'コンテキストメニューの更新に失敗しました（バックグラウンドが応答しません）'
   },
   en: {
     pageTitle: '⚙️ Settings',
@@ -44,25 +47,28 @@ const translations = {
     languageLabel: 'Language / 言語',
     languageDescription: 'Select display language',
     featuresTitle: '⚡ Features',
-    autoResolveDuplicatesLabel: 'Auto-Resolve Duplicates',
-    autoResolveDuplicatesDescription: 'Automatically resolve duplicate entries when data is refreshed',
+    autoResolveDuplicatesLabel: 'Auto-Fix Duplicate World Data',
+    autoResolveDuplicatesDescription: 'Fix duplicate data caused by errors using the "Refresh" button',
     vrcSiteIntegrationLabel: 'Add Buttons to VRChat Site',
-    vrcSiteIntegrationDescription: 'Add delete buttons and more on favorite worlds and user pages\n※Please reload VRChat pages after changing this setting',
-    contextMenuLabel: 'Context Menu',
-    contextMenuDescription: 'Add URL from right-click menu',
+    vrcSiteIntegrationDescription: 'Add delete buttons and more to world info on the official site',
+    contextMenuLabel: 'Add Context Menu',
+    contextMenuDescription: 'Add right-click menu to world URL links',
     dataTitle: '💾 Data Management',
     resetLabel: 'Reset Settings',
     resetDescription: 'Reset options to default values',
-    resetBtn: 'Execute',
+    resetBtnText: 'Execute',
     resetDataLabel: 'Delete All Saved Data',
     resetDataDescription: 'Delete all saved worlds and folders',
-    resetDataBtn: 'Delete All',
+    resetDataBtnText: 'Delete All',
     footerInfo: 'Version 1.2.0',
     saveSuccess: 'Settings saved successfully',
+    saveFailed: 'Failed to save settings',
     resetConfirm: 'Are you sure you want to reset all settings?',
     resetSuccess: 'Settings reset successfully',
     resetDataConfirm: 'Are you sure you want to reset all world and folder data? This cannot be undone. (Settings will be kept)',
-    resetDataSuccess: 'All data has been reset'
+    resetDataSuccess: 'All data has been reset',
+    resetDataFailed: 'Failed to delete data',
+    contextMenuUpdateFailed: 'Failed to update context menu (background not responding)'
   }
 };
 
@@ -100,6 +106,10 @@ async function loadSettings() {
     document.getElementById('themeSelect').value = currentSettings.theme;
     document.getElementById('languageSelect').value = currentSettings.language;
     
+    // ボタンテキストを翻訳
+    document.getElementById('resetBtn').textContent = t('resetBtnText');
+    document.getElementById('resetDataBtn').textContent = t('resetDataBtnText');
+    
     // トグルスイッチの状態を反映
     const autoResolveToggle = document.getElementById('autoResolveDuplicatesToggle');
     const vrcToggle = document.getElementById('vrcSiteIntegrationToggle');
@@ -124,6 +134,7 @@ async function loadSettings() {
     }
   } catch (error) {
     console.error('Failed to load settings:', error);
+    showNotification(t('saveFailed'), 'error');
   }
 }
 
@@ -134,12 +145,19 @@ async function saveSettings() {
     showNotification(t('saveSuccess'), 'success');
     
     // コンテキストメニューの更新をbackgroundに依頼
-    chrome.runtime.sendMessage({ type: 'updateContextMenus' }).catch(e => {
-      console.warn('Failed to send updateContextMenus message:', e.message);
-    });
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'updateContextMenus' });
+      if (!response || !response.success) {
+        console.warn('Context menu update may have failed:', response);
+      }
+    } catch (e) {
+      // バックグラウンドが応答しない場合は警告のみ（設定自体は保存済み）
+      console.warn('Background not responding for context menu update:', e.message);
+      showNotification(t('contextMenuUpdateFailed'), 'error');
+    }
   } catch (error) {
     console.error('Failed to save settings:', error);
-    showNotification('設定の保存に失敗しました', 'error');
+    showNotification(t('saveFailed'), 'error');
   }
 }
 
@@ -190,6 +208,9 @@ function setupEventListeners() {
     currentSettings.language = e.target.value;
     currentLang = e.target.value;
     applyLanguage();
+    // ボタンテキストも更新
+    document.getElementById('resetBtn').textContent = t('resetBtnText');
+    document.getElementById('resetDataBtn').textContent = t('resetDataBtnText');
     saveSettings();
   });
 
@@ -217,14 +238,25 @@ function setupEventListeners() {
   // 設定リセットボタン
   document.getElementById('resetBtn').addEventListener('click', async () => {
     if (confirm(t('resetConfirm'))) {
-      currentSettings = { ...DEFAULT_SETTINGS };
-      await chrome.storage.sync.set({ settings: currentSettings });
-      await loadSettings(); // UI再読み込み
-      applyTheme();
-      applyLanguage();
-      // コンテキストメニューも更新
-      chrome.runtime.sendMessage({ type: 'updateContextMenus' }).catch(e => console.warn(e.message));
-      showNotification(t('resetSuccess'), 'success');
+      try {
+        currentSettings = { ...DEFAULT_SETTINGS };
+        await chrome.storage.sync.set({ settings: currentSettings });
+        await loadSettings(); // UI再読み込み
+        applyTheme();
+        applyLanguage();
+        
+        // コンテキストメニューも更新
+        try {
+          await chrome.runtime.sendMessage({ type: 'updateContextMenus' });
+        } catch (e) {
+          console.warn('Background not responding for context menu update:', e.message);
+        }
+        
+        showNotification(t('resetSuccess'), 'success');
+      } catch (error) {
+        console.error('Failed to reset settings:', error);
+        showNotification(t('saveFailed'), 'error');
+      }
     }
   });
   
@@ -234,15 +266,17 @@ function setupEventListeners() {
       try {
         // background.js にデータリセットを依頼
         const response = await chrome.runtime.sendMessage({ type: 'resetAllData' });
+        
         if (response && response.success) {
           showNotification(t('resetDataSuccess'), 'success');
         } else {
-          const errorMsg = response?.error || 'データの削除に失敗しました';
+          const errorMsg = response?.error || t('resetDataFailed');
+          console.error('Reset data failed:', response);
           showNotification(errorMsg, 'error');
         }
       } catch (error) {
         console.error('Failed to reset data:', error);
-        showNotification(`エラー: ${error.message}`, 'error');
+        showNotification(`${t('resetDataFailed')}: ${error.message}`, 'error');
       }
     }
   });

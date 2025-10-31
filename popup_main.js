@@ -5,14 +5,12 @@
 function setupVRCSyncListener() {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'VRC_SYNC_COMPLETED') {
-      console.log('[Popup] Received VRC_SYNC_COMPLETED:', message);
+      logAction('VRC_SYNC_COMPLETED received', message);
       
-      // データを再読み込み
       loadData().then(() => {
         renderFolderTabs();
         renderCurrentView();
         
-        // FETCH時のみサムネイル取得を自動実行
         if (message.actionType === 'FETCH' && message.addedCount > 0) {
           showNotification(t('fetchingThumbnails'), 'info');
           setTimeout(() => {
@@ -29,9 +27,59 @@ function setupVRCSyncListener() {
           );
         }
       }).catch(error => {
-        console.error('[Popup] Failed to reload after VRC sync:', error);
+        console.error('Failed to reload after VRC sync:', error);
         showNotification(t('reloadFailed'), 'error');
       });
+      
+      sendResponse({ received: true });
+      return true;
+    }
+  });
+}
+
+// ========================================
+// レート制限カウントダウンリスナー
+// ========================================
+function setupRateLimitListener() {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === 'RATE_LIMIT_COUNTDOWN') {
+      const refreshBtn = document.getElementById('refreshBtn');
+      
+      if (refreshBtn) {
+        // 🔥 refreshText が存在しない場合も考慮
+        const refreshText = document.getElementById('refreshText');
+        if (refreshText) {
+          refreshText.textContent = `${t('commitInProgress')} (${message.remainingSeconds})`;
+        } else {
+          // span が見つからない場合は直接ボタンのテキストを更新
+          refreshBtn.textContent = `⏳ ${t('commitInProgress')} (${message.remainingSeconds})`;
+        }
+        refreshBtn.disabled = true;
+      }
+      
+      // 最初の通知時のみメッセージ表示
+      if (message.remainingSeconds >= 60 || message.remainingSeconds === Math.ceil(message.totalWaitSeconds || 60)) {
+        showNotification(
+          t('rateLimitWaiting'),
+          'info'
+        );
+      }
+      
+      sendResponse({ received: true });
+      return true;
+    }
+    
+    if (message.action === 'RATE_LIMIT_COMPLETE') {
+      const refreshBtn = document.getElementById('refreshBtn');
+      
+      if (refreshBtn) {
+        const refreshText = document.getElementById('refreshText');
+        if (refreshText) {
+          refreshText.textContent = t('commitInProgress');
+        } else {
+          refreshBtn.textContent = `⏳ ${t('commitInProgress')}`;
+        }
+      }
       
       sendResponse({ received: true });
       return true;
@@ -43,18 +91,18 @@ function setupVRCSyncListener() {
 // 起動
 // ========================================
 document.addEventListener('DOMContentLoaded', async () => {
-  await initSettings(); // popup_core.js
+  await initSettings();
   detectWindowMode();
-  await loadSettings(); // popup_core.js
+  await loadSettings();
   await loadData();
   setupEventListeners();
   renderFolderTabs();
   renderCurrentView();
   updateEditingState();
-  await checkPendingWorldFromContext(); // popup_actions.js
+  await checkPendingWorldFromContext();
   
-  // 🔥 VRC同期完了通知のリスナーを追加
   setupVRCSyncListener();
+  setupRateLimitListener(); // 🔥 レート制限リスナー追加
 });
 
 function detectWindowMode() {
@@ -76,9 +124,13 @@ async function loadData() {
     folders = foldersResponse.folders || [];
     vrcFolders = foldersResponse.vrcFolders || [];
 
-    console.log('[Popup] Data loaded:', allWorlds.length, 'worlds,', folders.length, 'folders,', vrcFolders.length, 'VRC folders');
+    logAction('Data loaded', { 
+      worlds: allWorlds.length, 
+      folders: folders.length, 
+      vrcFolders: vrcFolders.length 
+    });
   } catch (error) {
-    console.error('[Popup] Failed to load data:', error);
+    console.error('Failed to load data:', error);
     showNotification(t('dataLoadFailed'), 'error');
   }
 }
@@ -87,16 +139,13 @@ async function loadData() {
 // イベントリスナー設定
 // ========================================
 function setupEventListeners() {
-  // 検索
   document.getElementById('searchInput').addEventListener('input', handleSearch);
   document.getElementById('searchClearBtn').addEventListener('click', clearSearch);
 
-  // ページネーション
   document.getElementById('prevPageBtn').addEventListener('click', () => changePage(-1));
   document.getElementById('nextPageBtn').addEventListener('click', () => changePage(1));
   document.getElementById('selectAllWrapper').addEventListener('click', toggleSelectAll);
 
-  // ヘッダー
   document.getElementById('openOptionsBtn').addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
   });
@@ -104,7 +153,6 @@ function setupEventListeners() {
     chrome.tabs.create({ url: 'popup.html' });
   });
 
-  // 表示数変更
   document.getElementById('itemsPerPageInput').addEventListener('change', (e) => {
     let value = parseInt(e.target.value);
     if (isNaN(value) || value < 1) value = 1;
@@ -116,7 +164,6 @@ function setupEventListeners() {
     renderCurrentView();
   });
 
-  // ソート
   document.getElementById('sortSelect').addEventListener('change', (e) => {
     const newSort = e.target.value;
     if (newSort === sortBy) {
@@ -137,14 +184,10 @@ function setupEventListeners() {
     renderCurrentView();
   });
 
-  // --- popup_actions.js の関数を呼び出し ---
-
-  // 選択中の操作
   document.getElementById('updateSelectedBtn').addEventListener('click', updateSelectedWorlds);
   document.getElementById('moveSelectedBtn').addEventListener('click', () => openMoveFolderModal(Array.from(selectedWorldIds)));
   document.getElementById('deleteSelectedBtn').addEventListener('click', deleteSelectedWorlds);
 
-  // 全体操作
   document.getElementById('addWorldBtn').addEventListener('click', addWorldManual);
   document.getElementById('fetchDetailsBtn').addEventListener('click', () => {
     if (isFetchingDetails) {
@@ -165,7 +208,6 @@ function setupEventListeners() {
   document.getElementById('importBtn').addEventListener('click', () => openImportExportModal('import'));
   document.getElementById('exportBtn').addEventListener('click', () => openImportExportModal('export'));
 
-  // フォルダ名変更モーダル
   document.getElementById('renameConfirm').addEventListener('click', confirmRenameFolder);
   document.getElementById('renameCancel').addEventListener('click', () => closeModal('renameFolderModal'));
   document.getElementById('deleteFolderBtn').addEventListener('click', confirmDeleteFolder);
@@ -173,22 +215,18 @@ function setupEventListeners() {
     if (e.key === 'Enter') confirmRenameFolder();
   });
 
-  // VRCフォルダモーダル
   document.getElementById('vrcFetchBtn').addEventListener('click', fetchAllVRCFolders);
   document.getElementById('vrcSyncBtn').addEventListener('click', syncAllFavorites);
   document.getElementById('vrcCancelBtn').addEventListener('click', () => closeModal('vrcFolderModal'));
 
-  // インポート/エクスポートモーダル
   document.getElementById('importExportCancel').addEventListener('click', () => closeModal('importExportModal'));
   document.querySelectorAll('.import-export-option').forEach(option => {
     option.addEventListener('click', () => handleImportExportTypeSelect(option.dataset.type));
   });
 
-  // 削除確認モーダル
   document.getElementById('deleteConfirm').addEventListener('click', confirmDelete);
   document.getElementById('deleteCancel').addEventListener('click', () => closeModal('deleteModal'));
 
-  // ファイルインポート
   document.getElementById('importFile').addEventListener('change', handleFileImport);
 }
 
@@ -251,7 +289,6 @@ function renderFolderTabs() {
   tabs.push({ id: 'all', name: t('folderAll'), class: '', draggable: false });
   tabs.push({ id: 'none', name: t('folderNone'), class: 'none-folder', draggable: false });
 
-  // カスタムフォルダ
   let sortedFolders = [...folders];
   if (folderOrder.length > 0) {
     sortedFolders.sort((a, b) => {
@@ -270,7 +307,6 @@ function renderFolderTabs() {
 
   tabs.push({ id: 'add', name: '+', class: 'add-folder', draggable: false });
 
-  // VRCフォルダ
   vrcFolders.forEach(folder => {
     const count = allWorlds.filter(w => w.folderId === folder.id).length;
     const isOverLimit = count > 150;
@@ -302,19 +338,17 @@ function renderFolderTabs() {
     return `<div class="folder-tab ${tab.class} ${activeClass}" data-folder-id="${tab.id}" ${draggableAttr}>${displayName}</div>`;
   }).join('');
 
-  // イベントリスナー設定
   container.querySelectorAll('.folder-tab').forEach(tab => {
     const folderId = tab.dataset.folderId;
 
     if (folderId === 'add') {
       tab.addEventListener('click', () => switchFolder(folderId));
-      tab.addEventListener('dblclick', addNewFolder); // popup_actions.js
+      tab.addEventListener('dblclick', addNewFolder);
     } else {
       tab.addEventListener('click', () => switchFolder(folderId));
-      tab.addEventListener('dblclick', () => openFolderEditModal(folderId)); // popup_actions.js
+      tab.addEventListener('dblclick', () => openFolderEditModal(folderId));
     }
 
-    // ドロップターゲット
     tab.addEventListener('dragover', (e) => {
       if (folderId !== 'add' && folderId !== 'all') {
         e.preventDefault();
@@ -331,11 +365,10 @@ function renderFolderTabs() {
       tab.classList.remove('drop-target');
       const dataType = e.dataTransfer.types[0];
       if (dataType === 'worldids') {
-        handleFolderDrop(folderId, e); // popup_actions.js
+        handleFolderDrop(folderId, e);
       }
     });
 
-    // フォルダ並び替え
     if (tab.draggable) {
       tab.addEventListener('dragstart', (e) => {
         tab.classList.add('dragging');
@@ -378,7 +411,6 @@ function renderFolderTabs() {
     }
   });
 
-  // 編集中のマークを再適用
   if (isEditingList) {
     const affectedFolders = new Set();
     editingBuffer.movedWorlds.forEach(m => {
@@ -487,7 +519,6 @@ function renderWorlds(worlds) {
     `;
   }).join('');
 
-  // イベントリスナー設定
   container.querySelectorAll('.world-item').forEach(item => {
     const worldId = item.dataset.worldId;
     const folderId = item.dataset.folderId;
@@ -505,7 +536,7 @@ function renderWorlds(worlds) {
       if (hasSelection) {
         toggleWorldSelection(worldId);
       } else {
-        openWorldPage(worldId); // popup_actions.js
+        openWorldPage(worldId);
       }
     });
 
@@ -542,7 +573,7 @@ function renderWorlds(worlds) {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const action = btn.dataset.action;
-        handleWorldAction(action, worldId, folderId); // popup_actions.js
+        handleWorldAction(action, worldId, folderId);
       });
     });
   });
@@ -639,7 +670,6 @@ function changePage(delta) {
     currentPage = newPage;
     renderCurrentView();
     
-    // 🔥 コンテンツエリアを一番上にスクロール
     const contentArea = document.querySelector('.content');
     if (contentArea) {
       contentArea.scrollTop = 0;
@@ -652,27 +682,25 @@ function changePage(delta) {
 // ========================================
 async function autoResolveDuplicatesIfNeeded() {
   try {
-    // 重複検出
     const detectResponse = await chrome.runtime.sendMessage({ 
       type: 'detectDuplicates' 
     });
     
     if (!detectResponse.success) {
-      console.warn('[AutoResolve] Failed to detect duplicates:', detectResponse);
+      logError('AutoResolve failed to detect', detectResponse);
       return;
     }
     
     const duplicates = detectResponse.duplicates || [];
     
     if (duplicates.length === 0) {
-      console.log('[AutoResolve] No duplicates found');
+      logAction('AutoResolve', 'No duplicates found');
       return;
     }
     
-    console.log(`[AutoResolve] Found ${duplicates.length} duplicate groups, resolving...`);
+    logAction('AutoResolve', `Found ${duplicates.length} duplicate groups`);
     showNotification(t('resolvingDuplicates'), 'info');
     
-    // 重複解消
     const resolveResponse = await chrome.runtime.sendMessage({
       type: 'resolveDuplicates',
       strategy: duplicateStrategy
@@ -682,18 +710,17 @@ async function autoResolveDuplicatesIfNeeded() {
       const count = resolveResponse.resolvedCount || 0;
       if (count > 0) {
         showNotification(t('duplicatesResolved', { count }), 'success');
-        // データ再読み込み
         await loadData();
         renderFolderTabs();
         renderCurrentView();
       }
     } else {
       const errorMsg = resolveResponse.userMessage || resolveResponse.message || 'Unknown error';
-      console.error('[AutoResolve] Failed to resolve duplicates:', errorMsg);
+      console.error('Failed to resolve duplicates:', errorMsg);
       showNotification(t('duplicateResolveFailed', { error: errorMsg }), 'error');
     }
   } catch (error) {
-    console.error('[AutoResolve] Exception:', error);
+    console.error('AutoResolve exception:', error);
   }
 }
 
@@ -733,7 +760,6 @@ function updateEditingState() {
   const exportBtn = document.getElementById('exportBtn');
   
   if (!banner || !refreshBtn) {
-    console.warn('[updateEditingState] Required elements not found');
     return;
   }
 
@@ -747,7 +773,7 @@ function updateEditingState() {
     }
     
     refreshBtn.disabled = false;
-    refreshBtn.innerHTML = `✔<span id="refreshText">${t('confirmText')}</span>`;
+    refreshBtn.innerHTML = `✓<span id="refreshText">${t('confirmText')}</span>`;
     refreshBtn.classList.add('confirm-button');
 
     addWorldBtn.disabled = true;

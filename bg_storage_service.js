@@ -8,20 +8,18 @@ console.log('[StorageService] Loaded');
 class StorageRateLimiter {
   constructor() {
     this.writeCount = 0;
-    this.resetTime = Date.now() + 60000; // 1分後
-    this.maxWrites = 100; // 安全マージン(実際は120)
+    this.resetTime = Date.now() + 60000;
+    this.maxWrites = 100;
   }
 
   async checkAndWait() {
     const now = Date.now();
     
-    // 1分経過したらリセット
     if (now >= this.resetTime) {
       this.writeCount = 0;
       this.resetTime = now + 60000;
     }
     
-    // 制限に達している場合は待機
     if (this.writeCount >= this.maxWrites) {
       const waitTime = this.resetTime - now;
       logAction('RATE_LIMIT_WAIT', { 
@@ -29,9 +27,71 @@ class StorageRateLimiter {
         message: 'Waiting for rate limit reset'
       });
       
-      await sleep(waitTime + 1000); // 少し余裕を持たせる
+      await sleep(waitTime + 1000);
       
-      // リセット
+      this.writeCount = 0;
+      this.resetTime = Date.now() + 60000;
+    }
+    
+    this.writeCount++;
+  }
+
+  needsWait() {
+    const now = Date.now();
+    
+    if (now >= this.resetTime) {
+      this.writeCount = 0;
+      this.resetTime = now + 60000;
+      return false;
+    }
+    
+    return this.writeCount >= this.maxWrites;
+  }
+  
+  getWaitTime() {
+    if (!this.needsWait()) return 0;
+    return Math.max(0, this.resetTime - Date.now());
+  }
+  
+  getWaitTimeInSeconds() {
+    const waitMs = this.getWaitTime();
+    return Math.ceil(waitMs / 1000);
+  }
+  
+  async checkAndWaitWithProgress(progressCallback) {
+    const now = Date.now();
+    
+    if (now >= this.resetTime) {
+      this.writeCount = 0;
+      this.resetTime = now + 60000;
+    }
+    
+    if (this.writeCount >= this.maxWrites) {
+      const totalWaitMs = this.resetTime - now + 1000;
+      const totalWaitSec = Math.ceil(totalWaitMs / 1000);
+      
+      logAction('RATE_LIMIT_WAIT_WITH_PROGRESS', { 
+        totalWaitSeconds: totalWaitSec
+      });
+      
+      // 🔥 progressCallback の有無に関わらずカウントダウン
+      for (let remaining = totalWaitSec; remaining > 0; remaining--) {
+        if (progressCallback) {
+          progressCallback({
+            action: 'RATE_LIMIT_COUNTDOWN',
+            remainingSeconds: remaining,
+            totalWaitSeconds: totalWaitSec
+          });
+        }
+        await sleep(1000);
+      }
+      
+      if (progressCallback) {
+        progressCallback({
+          action: 'RATE_LIMIT_COMPLETE'
+        });
+      }
+      
       this.writeCount = 0;
       this.resetTime = Date.now() + 60000;
     }
@@ -46,8 +106,9 @@ const rateLimiter = new StorageRateLimiter();
 // ストレージラッパー関数(レート制限対応)
 // ========================================
 
-async function safeStorageSet(storageType, data) {
-  await rateLimiter.checkAndWait();
+async function safeStorageSet(storageType, data, progressCallback = null) {
+  // 🔥 progressCallback の有無に関わらず、常に checkAndWaitWithProgress を使用
+  await rateLimiter.checkAndWaitWithProgress(progressCallback);
   
   try {
     if (storageType === 'sync') {
@@ -59,15 +120,33 @@ async function safeStorageSet(storageType, data) {
   } catch (error) {
     if (error.message && error.message.includes('MAX_WRITE_OPERATIONS_PER_MINUTE')) {
       logError('STORAGE_RATE_LIMIT', 'Rate limit exceeded, retrying after 60s');
-      await sleep(60000);
-      return safeStorageSet(storageType, data); // リトライ
+      
+      if (progressCallback) {
+        for (let remaining = 60; remaining > 0; remaining--) {
+          progressCallback({
+            action: 'RATE_LIMIT_COUNTDOWN',
+            remainingSeconds: remaining,
+            totalWaitSeconds: 60
+          });
+          await sleep(1000);
+        }
+        
+        progressCallback({
+          action: 'RATE_LIMIT_COMPLETE'
+        });
+      } else {
+        await sleep(60000);
+      }
+      
+      return safeStorageSet(storageType, data, progressCallback);
     }
     throw error;
   }
 }
 
-async function safeStorageRemove(storageType, keys) {
-  await rateLimiter.checkAndWait();
+async function safeStorageRemove(storageType, keys, progressCallback = null) {
+  // 🔥 progressCallback の有無に関わらず、常に checkAndWaitWithProgress を使用
+  await rateLimiter.checkAndWaitWithProgress(progressCallback);
   
   try {
     if (storageType === 'sync') {
@@ -79,8 +158,25 @@ async function safeStorageRemove(storageType, keys) {
   } catch (error) {
     if (error.message && error.message.includes('MAX_WRITE_OPERATIONS_PER_MINUTE')) {
       logError('STORAGE_RATE_LIMIT', 'Rate limit exceeded, retrying after 60s');
-      await sleep(60000);
-      return safeStorageRemove(storageType, keys); // リトライ
+      
+      if (progressCallback) {
+        for (let remaining = 60; remaining > 0; remaining--) {
+          progressCallback({
+            action: 'RATE_LIMIT_COUNTDOWN',
+            remainingSeconds: remaining,
+            totalWaitSeconds: 60
+          });
+          await sleep(1000);
+        }
+        
+        progressCallback({
+          action: 'RATE_LIMIT_COMPLETE'
+        });
+      } else {
+        await sleep(60000);
+      }
+      
+      return safeStorageRemove(storageType, keys, progressCallback);
     }
     throw error;
   }
@@ -97,19 +193,16 @@ async function initializeStorage() {
   if (!sync.folders) await safeStorageSet('sync', { folders: [] });
   if (!local.vrcWorlds) await safeStorageSet('local', { vrcWorlds: [] });
 
-  // 旧形式のworldsが存在する場合、分割形式に移行
   if (sync.worlds && sync.worlds.length > 0) {
     logAction('MIGRATE_WORLDS_TO_CHUNKED', { count: sync.worlds.length });
     await saveWorldsChunked(sync.worlds);
     await safeStorageRemove('sync', ['worlds']);
   }
 
-  // 分割形式が存在しない場合は初期化
   if (!sync.worlds_0) {
     await safeStorageSet('sync', { worlds_0: [] });
   }
 
-  // 旧形式のworldDetailsが存在する場合、分割形式に移行
   if (local.worldDetails && Object.keys(local.worldDetails).length > 0) {
     logAction('MIGRATE_WORLD_DETAILS', { count: Object.keys(local.worldDetails).length });
     await saveWorldDetailsBatch(local.worldDetails);
@@ -201,7 +294,6 @@ async function getWorldDetails(worldId) {
     return local[chunkKey][worldId];
   }
 
-  // フォールバック (全スキャン)
   for (let i = 0; i < DETAILS_CHUNK_SIZE; i++) {
     const key = `worldDetails_${i}`;
     const chunk = await chrome.storage.local.get([key]);
@@ -224,7 +316,6 @@ async function deleteWorldDetails(worldId) {
     return;
   }
 
-  // フォールバック (全スキャン)
   for (let i = 0; i < DETAILS_CHUNK_SIZE; i++) {
     const key = `worldDetails_${i}`;
     const chunk = await chrome.storage.local.get([key]);
@@ -250,33 +341,31 @@ async function getAllWorldDetailsInternal() {
 }
 
 // ========================================
-// worlds分割保存ヘルパー(レート制限対応)
+// worlds分割保存ヘルパー(レート制限対応) - 🔥 修正版
 // ========================================
 
-async function saveWorldsChunked(worlds) {
+async function saveWorldsChunked(worlds, progressCallback = null) {
   const chunks = {};
 
-  // チャンクに分割
   for (let i = 0; i < worlds.length; i += WORLDS_CHUNK_SIZE) {
     const chunkIndex = Math.floor(i / WORLDS_CHUNK_SIZE);
     const chunkKey = `worlds_${chunkIndex}`;
     chunks[chunkKey] = worlds.slice(i, i + WORLDS_CHUNK_SIZE);
   }
 
-  // 既存のチャンクをクリア
   const sync = await chrome.storage.sync.get(null);
   const oldChunkKeys = Object.keys(sync).filter(key => key.startsWith('worlds_'));
 
-  // 新しいチャンクを保存
+  // 🔥 progressCallback を各保存処理に渡す
   for (const [key, value] of Object.entries(chunks)) {
-    await safeStorageSet('sync', { [key]: value });
+    await safeStorageSet('sync', { [key]: value }, progressCallback);
   }
 
-  // 不要になった古いチャンクを削除
   const newChunkKeys = Object.keys(chunks);
   const keysToRemove = oldChunkKeys.filter(key => !newChunkKeys.includes(key));
   if (keysToRemove.length > 0) {
-    await safeStorageRemove('sync', keysToRemove);
+    // 🔥 progressCallback を削除処理にも渡す
+    await safeStorageRemove('sync', keysToRemove, progressCallback);
   }
 
   logAction('WORLDS_CHUNKED_SAVED', {
@@ -289,7 +378,6 @@ async function loadWorldsChunked() {
   const sync = await chrome.storage.sync.get(null);
   const worlds = [];
 
-  // worlds_0, worlds_1, ... の順に読み込み
   for (let i = 0; i < MAX_WORLDS_CHUNKS; i++) {
     const chunkKey = `worlds_${i}`;
     if (sync[chunkKey]) {

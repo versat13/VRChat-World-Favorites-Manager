@@ -421,8 +421,8 @@ const translations = {
 
 let currentLang = 'ja';
 let currentTheme = 'dark';
-let autoResolveDuplicates = true; // デフォルトON
-let duplicateStrategy = 'keep_first'; // デフォルト戦略
+let autoResolveDuplicates = true;
+let duplicateStrategy = 'keep_first';
 
 // ==================== 初期化 ====================
 async function initSettings() {
@@ -456,7 +456,6 @@ function applyTheme() {
 function applyLanguage() {
     document.documentElement.lang = currentLang;
     
-    // 各要素のテキストを更新
     Object.keys(translations[currentLang]).forEach(key => {
         const element = document.getElementById(key);
         if (element) {
@@ -472,7 +471,6 @@ function applyLanguage() {
         }
     });
     
-    // 特定のID用の特別処理
     const searchInput = document.getElementById('searchInput');
     if (searchInput) {
         searchInput.placeholder = translations[currentLang]['searchPlaceholder'];
@@ -483,7 +481,6 @@ function applyLanguage() {
 function t(key, params = {}) {
     let text = translations[currentLang][key] || key;
     
-    // パラメータ置換
     Object.keys(params).forEach(param => {
         text = text.replace(`{${param}}`, params[param]);
     });
@@ -527,7 +524,6 @@ let shouldCancelFetch = false;
 let sortBy = 'added';
 let sortAscending = false;
 
-// 🔥 同期中フラグ追加
 let isSyncing = false;
 
 // リスト編集中の状態管理
@@ -547,8 +543,8 @@ let pendingDeleteAction = null;
 // フォルダ並び順
 let folderOrder = [];
 
-// デバッグログ
-const DEBUG_LOG = true;
+// デバッグログ (v1.2.5: 本番環境では無効化)
+const DEBUG_LOG = false;
 
 function logAction(action, data) {
     if (!DEBUG_LOG) return;
@@ -591,7 +587,7 @@ async function loadSettings() {
             folderOrder = result.folderOrder;
         }
     } catch (error) {
-        console.error('[Popup] Failed to load settings:', error);
+        console.error('Failed to load settings:', error);
     }
 }
 
@@ -605,7 +601,7 @@ async function saveSettings() {
             folderOrder
         });
     } catch (error) {
-        console.error('[Popup] Failed to save settings:', error);
+        console.error('Failed to save settings:', error);
     }
 }
 
@@ -621,7 +617,6 @@ function showNotification(message, type = 'info') {
     }, 3000);
 }
 
-// エラーレスポンスの表示（userMessage優先）
 function showErrorResponse(response, context = '') {
     const displayMessage = response.userMessage || response.message || t('errorOccurred');
     console.error(`[Error${context ? ' - ' + context : ''}]:`, response);
