@@ -1,4 +1,4 @@
-// page-world.js v1.2.0
+// page-world.js v1.2.1 (前半)
 
 (function () {
   'use strict';
@@ -29,7 +29,8 @@
       worldIdNotFound: 'ワールドIDを取得できませんでした',
       error: 'エラーが発生しました',
       copyFailed: 'リンクのコピーに失敗しました',
-      registered: '✓ 登録済み'
+      registered: '✓ 登録済み',
+      alreadyDeleted: 'ℹ️ 既に削除済みです'
     },
     en: {
       extInvalidated: 'Extension context invalidated. Please reload the page.',
@@ -55,7 +56,8 @@
       worldIdNotFound: 'Failed to get world ID',
       error: 'An error occurred',
       copyFailed: 'Failed to copy link',
-      registered: '✓ Registered'
+      registered: '✓ Registered',
+      alreadyDeleted: 'ℹ️ Already deleted'
     }
   };
 
@@ -748,7 +750,8 @@
       }
     }
   }
-
+  // === World Management Functions (続き) ===
+  
   async function deleteFromExtension(worldId) {
     if (!savedWorldIds.has(worldId)) {
       return;
@@ -817,10 +820,29 @@
         }
       }, TIMEOUTS.VRC_DELETE_SYNC);
     } else {
+      // ボタンが見つからない = 既に削除済み or 未登録
       const vrcWorld = vrcWorlds.find(w => w.id === worldId);
       if (vrcWorld) {
-        showNotification(t('vrcDeleteNotFound'), 'error');
+        // キャッシュにあるが削除ボタンがない = 既に削除済み
+        showNotification(t('alreadyDeleted'), 'info');
+        
+        // キャッシュから削除（非同期処理を即時実行関数でラップ）
+        (async () => {
+          try {
+            await chrome.runtime.sendMessage({
+              type: 'removeWorld',
+              worldId: worldId,
+              folderId: vrcWorld.folderId
+            });
+            vrcWorlds = vrcWorlds.filter(w => w.id !== worldId);
+          } catch (error) {
+            if (!error.message.includes('Extension context invalidated')) {
+              console.error('[World Page] Failed to sync deletion:', error);
+            }
+          }
+        })();
       } else {
+        // キャッシュにもない = 未登録
         showNotification(t('vrcDeleteNotFavorited'), 'info');
       }
     }

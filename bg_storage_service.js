@@ -1,8 +1,8 @@
 // bg_storage_service.js v1.2.0
-console.log('[StorageService] Loaded');
+console.log('[StorageService] Loaded v1.2.0');
 
 // ========================================
-// レート制限管理
+// Rate Limit Management
 // ========================================
 
 class StorageRateLimiter {
@@ -10,6 +10,7 @@ class StorageRateLimiter {
     this.writeCount = 0;
     this.resetTime = Date.now() + 60000;
     this.maxWrites = 100;
+    this.isWaiting = false;
   }
 
   async checkAndWait() {
@@ -59,6 +60,11 @@ class StorageRateLimiter {
   }
   
   async checkAndWaitWithProgress(progressCallback) {
+    if (this.isWaiting) {
+      logAction('RATE_LIMIT_ALREADY_WAITING', 'Skipping duplicate wait');
+      return;
+    }
+    
     const now = Date.now();
     
     if (now >= this.resetTime) {
@@ -70,30 +76,44 @@ class StorageRateLimiter {
       const totalWaitMs = this.resetTime - now + 1000;
       const totalWaitSec = Math.ceil(totalWaitMs / 1000);
       
-      logAction('RATE_LIMIT_WAIT_WITH_PROGRESS', { 
-        totalWaitSeconds: totalWaitSec
-      });
-      
-      // 🔥 progressCallback の有無に関わらずカウントダウン
-      for (let remaining = totalWaitSec; remaining > 0; remaining--) {
-        if (progressCallback) {
-          progressCallback({
-            action: 'RATE_LIMIT_COUNTDOWN',
-            remainingSeconds: remaining,
-            totalWaitSeconds: totalWaitSec
-          });
-        }
-        await sleep(1000);
-      }
-      
-      if (progressCallback) {
-        progressCallback({
-          action: 'RATE_LIMIT_COMPLETE'
+      try {
+        this.isWaiting = true;
+        
+        logAction('RATE_LIMIT_WAIT_WITH_PROGRESS', { 
+          totalWaitSeconds: totalWaitSec,
+          hasCallback: !!progressCallback
         });
+        
+        if (progressCallback) {
+          logAction('RATE_LIMIT_COUNTDOWN_START', { totalWaitSec });
+
+          for (let remaining = totalWaitSec; remaining > 0; remaining--) {
+            logAction('RATE_LIMIT_COUNTDOWN_TICK', { remaining });
+            
+            // ★統一型使用: ProgressMessage.rateLimitCountdown()
+            progressCallback(
+              ProgressMessage.rateLimitCountdown(remaining, totalWaitSec)
+            );
+            await sleep(1000);
+          }
+
+          logAction('RATE_LIMIT_COUNTDOWN_FINISHED', 'Sending WAIT_FINISHED message');
+          
+          // ★統一型使用: ProgressMessage.rateLimitFinished()
+          progressCallback(
+            ProgressMessage.rateLimitFinished()
+          );
+        } else {
+          logAction('RATE_LIMIT_NO_CALLBACK', 'Waiting without progress callback');
+          await sleep(totalWaitMs);
+        }
+        
+        this.writeCount = 0;
+        this.resetTime = Date.now() + 60000;
+      } finally {
+        this.isWaiting = false;
+        logAction('RATE_LIMIT_WAIT_FINISHED', 'Exiting wait state');
       }
-      
-      this.writeCount = 0;
-      this.resetTime = Date.now() + 60000;
     }
     
     this.writeCount++;
@@ -103,11 +123,10 @@ class StorageRateLimiter {
 const rateLimiter = new StorageRateLimiter();
 
 // ========================================
-// ストレージラッパー関数(レート制限対応)
+// Storage Wrapper Functions (Rate Limited)
 // ========================================
 
 async function safeStorageSet(storageType, data, progressCallback = null) {
-  // 🔥 progressCallback の有無に関わらず、常に checkAndWaitWithProgress を使用
   await rateLimiter.checkAndWaitWithProgress(progressCallback);
   
   try {
@@ -119,22 +138,35 @@ async function safeStorageSet(storageType, data, progressCallback = null) {
     return { success: true };
   } catch (error) {
     if (error.message && error.message.includes('MAX_WRITE_OPERATIONS_PER_MINUTE')) {
-      logError('STORAGE_RATE_LIMIT', 'Rate limit exceeded, retrying after 60s');
+      logError('STORAGE_RATE_LIMIT_CHROME_API_DETECTED', 'Forcing rateLimiter reset');
+      
+      rateLimiter.writeCount = rateLimiter.maxWrites;
+      rateLimiter.resetTime = Date.now() + 60000;
+      rateLimiter.isWaiting = false;
+      
+      logError('STORAGE_RATE_LIMIT_CHROME_API', 'Chrome API rate limit hit unexpectedly');
       
       if (progressCallback) {
+        logAction('CHROME_API_RATE_LIMIT_COUNTDOWN_START', 'Starting 60s countdown');
+        
         for (let remaining = 60; remaining > 0; remaining--) {
-          progressCallback({
-            action: 'RATE_LIMIT_COUNTDOWN',
-            remainingSeconds: remaining,
-            totalWaitSeconds: 60
-          });
+          logAction('CHROME_API_RATE_LIMIT_TICK', { remaining });
+          
+          // ★統一型使用
+          progressCallback(
+            ProgressMessage.rateLimitCountdown(remaining, 60)
+          );
           await sleep(1000);
         }
         
-        progressCallback({
-          action: 'RATE_LIMIT_COMPLETE'
-        });
+        logAction('CHROME_API_RATE_LIMIT_FINISHED', 'Sending WAIT_FINISHED message');
+        
+        // ★統一型使用
+        progressCallback(
+          ProgressMessage.rateLimitFinished()
+        );
       } else {
+        logAction('CHROME_API_RATE_LIMIT_NO_CALLBACK', 'Waiting 60s without callback');
         await sleep(60000);
       }
       
@@ -145,7 +177,6 @@ async function safeStorageSet(storageType, data, progressCallback = null) {
 }
 
 async function safeStorageRemove(storageType, keys, progressCallback = null) {
-  // 🔥 progressCallback の有無に関わらず、常に checkAndWaitWithProgress を使用
   await rateLimiter.checkAndWaitWithProgress(progressCallback);
   
   try {
@@ -157,22 +188,35 @@ async function safeStorageRemove(storageType, keys, progressCallback = null) {
     return { success: true };
   } catch (error) {
     if (error.message && error.message.includes('MAX_WRITE_OPERATIONS_PER_MINUTE')) {
-      logError('STORAGE_RATE_LIMIT', 'Rate limit exceeded, retrying after 60s');
+      logError('STORAGE_RATE_LIMIT_CHROME_API_DETECTED', 'Forcing rateLimiter reset');
+      
+      rateLimiter.writeCount = rateLimiter.maxWrites;
+      rateLimiter.resetTime = Date.now() + 60000;
+      rateLimiter.isWaiting = false;
+      
+      logError('STORAGE_RATE_LIMIT_CHROME_API', 'Chrome API rate limit hit unexpectedly');
       
       if (progressCallback) {
+        logAction('CHROME_API_RATE_LIMIT_COUNTDOWN_START', 'Starting 60s countdown');
+        
         for (let remaining = 60; remaining > 0; remaining--) {
-          progressCallback({
-            action: 'RATE_LIMIT_COUNTDOWN',
-            remainingSeconds: remaining,
-            totalWaitSeconds: 60
-          });
+          logAction('CHROME_API_RATE_LIMIT_TICK', { remaining });
+          
+          // ★統一型使用
+          progressCallback(
+            ProgressMessage.rateLimitCountdown(remaining, 60)
+          );
           await sleep(1000);
         }
         
-        progressCallback({
-          action: 'RATE_LIMIT_COMPLETE'
-        });
+        logAction('CHROME_API_RATE_LIMIT_FINISHED', 'Sending WAIT_FINISHED message');
+        
+        // ★統一型使用
+        progressCallback(
+          ProgressMessage.rateLimitFinished()
+        );
       } else {
+        logAction('CHROME_API_RATE_LIMIT_NO_CALLBACK', 'Waiting 60s without callback');
         await sleep(60000);
       }
       
@@ -183,12 +227,12 @@ async function safeStorageRemove(storageType, keys, progressCallback = null) {
 }
 
 // ========================================
-// ストレージ初期化・統計
+// Storage Initialization & Stats
 // ========================================
 
 async function initializeStorage() {
   const sync = await chrome.storage.sync.get(['folders', 'vrcFolderData', 'worlds', 'worlds_0']);
-  const local = await chrome.storage.local.get(['vrcWorlds', 'worldDetails']);
+  const local = await chrome.storage.local.get(['vrcWorlds', 'worldDetails', 'migrationCompleted_v120']);
 
   if (!sync.folders) await safeStorageSet('sync', { folders: [] });
   if (!local.vrcWorlds) await safeStorageSet('local', { vrcWorlds: [] });
@@ -211,6 +255,63 @@ async function initializeStorage() {
 
   if (!sync.vrcFolderData) {
     await safeStorageSet('sync', { vrcFolderData: {} });
+  }
+
+  // v1.2.0: vrcWorldsの詳細情報をworldDetails_*に統合
+  if (!local.migrationCompleted_v120) {
+    await migrateVrcWorldsToUnifiedStorage();
+  }
+}
+
+async function migrateVrcWorldsToUnifiedStorage() {
+  try {
+    logAction('MIGRATION_V120_START', 'Starting vrcWorlds migration');
+
+    const local = await chrome.storage.local.get(['vrcWorlds']);
+    const vrcWorlds = local.vrcWorlds || [];
+
+    if (vrcWorlds.length === 0) {
+      logAction('MIGRATION_V120_SKIP', 'No vrcWorlds to migrate');
+      await chrome.storage.local.set({ migrationCompleted_v120: true });
+      return;
+    }
+
+    const detailsMap = {};
+    for (const world of vrcWorlds) {
+      if (world.name || world.authorName || world.releaseStatus || world.thumbnailImageUrl) {
+        detailsMap[world.id] = {
+          name: world.name || world.id,
+          authorName: world.authorName || null,
+          releaseStatus: world.releaseStatus || null,
+          thumbnailImageUrl: world.thumbnailImageUrl || null
+        };
+      }
+    }
+
+    if (Object.keys(detailsMap).length > 0) {
+      logAction('MIGRATION_V120_SAVING_DETAILS', { count: Object.keys(detailsMap).length });
+      await saveWorldDetailsBatch(detailsMap);
+    }
+
+    const minimalVrcWorlds = vrcWorlds.map(w => ({
+      id: w.id,
+      folderId: w.folderId,
+      favoriteRecordId: w.favoriteRecordId || null
+    }));
+
+    await chrome.storage.local.set({
+      vrcWorlds: minimalVrcWorlds,
+      migrationCompleted_v120: true
+    });
+
+    logAction('MIGRATION_V120_COMPLETE', { 
+      totalWorlds: vrcWorlds.length,
+      detailsSaved: Object.keys(detailsMap).length
+    });
+
+  } catch (error) {
+    logError('MIGRATION_V120_ERROR', error);
+    await chrome.storage.local.set({ migrationCompleted_v120: true });
   }
 }
 
@@ -250,20 +351,20 @@ async function getStorageStats(sendResponse) {
 }
 
 // ========================================
-// worldDetails保存ヘルパー(レート制限対応)
+// worldDetails Save Helpers (Rate Limited)
 // ========================================
 
-async function saveWorldDetails(worldId, details) {
+async function saveWorldDetails(worldId, details, progressCallback = null) {
   const chunkIndex = Math.abs(hashCode(worldId)) % DETAILS_CHUNK_SIZE;
   const chunkKey = `worldDetails_${chunkIndex}`;
 
   const local = await chrome.storage.local.get([chunkKey]);
   const chunk = local[chunkKey] || {};
   chunk[worldId] = details;
-  await safeStorageSet('local', { [chunkKey]: chunk });
+  await safeStorageSet('local', { [chunkKey]: chunk }, progressCallback);
 }
 
-async function saveWorldDetailsBatch(detailsMap) {
+async function saveWorldDetailsBatch(detailsMap, progressCallback = null) {
   const chunks = {};
 
   for (const [worldId, details] of Object.entries(detailsMap)) {
@@ -276,13 +377,25 @@ async function saveWorldDetailsBatch(detailsMap) {
     chunks[chunkKey][worldId] = details;
   }
 
+  const chunkCount = Object.keys(chunks).length;
+  logAction('BATCH_SAVE_DETAILS_CHUNKS', { 
+    totalWorlds: Object.keys(detailsMap).length,
+    chunkCount 
+  });
+
   for (const [chunkKey, chunkData] of Object.entries(chunks)) {
     const local = await chrome.storage.local.get([chunkKey]);
     const existing = local[chunkKey] || {};
+    
     await safeStorageSet('local', {
       [chunkKey]: { ...existing, ...chunkData }
-    });
+    }, progressCallback);
   }
+  
+  logAction('BATCH_SAVE_DETAILS_COMPLETE', { 
+    writesPerformed: chunkCount,
+    totalRateLimiterCount: rateLimiter.writeCount 
+  });
 }
 
 async function getWorldDetails(worldId) {
@@ -292,39 +405,22 @@ async function getWorldDetails(worldId) {
   const local = await chrome.storage.local.get([chunkKey]);
   if (local[chunkKey] && local[chunkKey][worldId]) {
     return local[chunkKey][worldId];
+  } else {
+    return null;
   }
-
-  for (let i = 0; i < DETAILS_CHUNK_SIZE; i++) {
-    const key = `worldDetails_${i}`;
-    const chunk = await chrome.storage.local.get([key]);
-    if (chunk[key] && chunk[key][worldId]) {
-      return chunk[key][worldId];
-    }
-  }
-
-  return null;
 }
 
-async function deleteWorldDetails(worldId) {
+async function deleteWorldDetails(worldId, progressCallback = null) {
   const chunkIndex = Math.abs(hashCode(worldId)) % DETAILS_CHUNK_SIZE;
   const chunkKey = `worldDetails_${chunkIndex}`;
 
   const local = await chrome.storage.local.get([chunkKey]);
   if (local[chunkKey] && local[chunkKey][worldId]) {
     delete local[chunkKey][worldId];
-    await safeStorageSet('local', { [chunkKey]: local[chunkKey] });
-    return;
+    await safeStorageSet('local', { [chunkKey]: local[chunkKey] }, progressCallback);
+    return true;
   }
-
-  for (let i = 0; i < DETAILS_CHUNK_SIZE; i++) {
-    const key = `worldDetails_${i}`;
-    const chunk = await chrome.storage.local.get([key]);
-    if (chunk[key] && chunk[key][worldId]) {
-      delete chunk[key][worldId];
-      await safeStorageSet('local', { [key]: chunk[key] });
-      return;
-    }
-  }
+  return false;
 }
 
 async function getAllWorldDetailsInternal() {
@@ -341,10 +437,15 @@ async function getAllWorldDetailsInternal() {
 }
 
 // ========================================
-// worlds分割保存ヘルパー(レート制限対応) - 🔥 修正版
+// worlds Chunked Save Helpers (Rate Limited)
 // ========================================
 
 async function saveWorldsChunked(worlds, progressCallback = null) {
+  logAction('SAVE_WORLDS_CHUNKED_START', { 
+    worldCount: worlds.length, 
+    hasCallback: !!progressCallback 
+  });
+  
   const chunks = {};
 
   for (let i = 0; i < worlds.length; i += WORLDS_CHUNK_SIZE) {
@@ -356,7 +457,6 @@ async function saveWorldsChunked(worlds, progressCallback = null) {
   const sync = await chrome.storage.sync.get(null);
   const oldChunkKeys = Object.keys(sync).filter(key => key.startsWith('worlds_'));
 
-  // 🔥 progressCallback を各保存処理に渡す
   for (const [key, value] of Object.entries(chunks)) {
     await safeStorageSet('sync', { [key]: value }, progressCallback);
   }
@@ -364,7 +464,6 @@ async function saveWorldsChunked(worlds, progressCallback = null) {
   const newChunkKeys = Object.keys(chunks);
   const keysToRemove = oldChunkKeys.filter(key => !newChunkKeys.includes(key));
   if (keysToRemove.length > 0) {
-    // 🔥 progressCallback を削除処理にも渡す
     await safeStorageRemove('sync', keysToRemove, progressCallback);
   }
 
@@ -388,29 +487,11 @@ async function loadWorldsChunked() {
   return worlds;
 }
 
-async function addWorldToChunkedStorage(worldId, folderId) {
-  const worlds = await loadWorldsChunked();
-  worlds.push({ id: worldId, folderId: folderId });
-  await saveWorldsChunked(worlds);
-}
-
-async function removeWorldFromChunkedStorage(worldId) {
-  const worlds = await loadWorldsChunked();
-  const filtered = worlds.filter(w => w.id !== worldId);
-  await saveWorldsChunked(filtered);
-}
-
-async function updateWorldInChunkedStorage(worldId, newFolderId) {
-  const worlds = await loadWorldsChunked();
-  const index = worlds.findIndex(w => w.id === worldId);
-  if (index !== -1) {
-    worlds[index].folderId = newFolderId;
-    await saveWorldsChunked(worlds);
-  }
-}
+// ★削除: addWorldToChunkedStorage, removeWorldFromChunkedStorage, updateWorldInChunkedStorage
+// これらは bg_world_data_model.js で直接 saveWorldsChunked/loadWorldsChunked を呼ぶべき
 
 // ========================================
-// 内部ヘルパー (データアクセス)
+// Internal Helpers (Data Access)
 // ========================================
 
 async function getVRCFolderWorlds(folderId) {

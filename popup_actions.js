@@ -1,6 +1,8 @@
-// popup_actions.js v1.2.0
+// popup_actions.js v1.2.0 (前半)
+// DEBUG_LOGはpopup_core.jsで定義
+
 // ========================================
-// ワールド操作 (個別)
+// World Actions (Individual)
 // ========================================
 function handleWorldAction(action, worldId, folderId) {
   switch (action) {
@@ -34,7 +36,7 @@ function copyWorldURL(worldId) {
 }
 
 // ========================================
-// ワールド詳細取得ヘルパー関数
+// World Details Fetch Helper
 // ========================================
 async function fetchWorldDetails(worldId) {
   try {
@@ -56,7 +58,7 @@ async function fetchWorldDetails(worldId) {
 }
 
 // ========================================
-// ワールド詳細取得
+// Refetch World Details
 // ========================================
 async function refetchWorldDetails(worldId, folderId) {
   try {
@@ -91,7 +93,7 @@ async function refetchWorldDetails(worldId, folderId) {
 }
 
 // ========================================
-// 選択中のワールド更新
+// Update Selected Worlds
 // ========================================
 async function updateSelectedWorlds() {
   if (selectedWorldIds.size === 0) return;
@@ -141,7 +143,7 @@ async function updateSelectedWorlds() {
 }
 
 // ========================================
-// 全ワールドの詳細取得
+// Fetch All Details
 // ========================================
 async function fetchAllDetails(targetFolderId = null) {
   let targetWorlds = allWorlds;
@@ -177,53 +179,55 @@ async function fetchAllDetails(targetFolderId = null) {
   let successCount = 0;
   let failCount = 0;
 
-  for (let i = 0; i < sortedWorlds.length; i++) {
-    if (shouldCancelFetch) {
-      showNotification(t('thumbnailCancel'), 'info');
-      break;
-    }
+  try {
+    for (let i = 0; i < sortedWorlds.length; i++) {
+      if (shouldCancelFetch) {
+        showNotification(t('thumbnailCancel'), 'info');
+        break;
+      }
 
-    btn.textContent = `🔄 ${t('detailsFetching')} (${i + 1}/${totalCount})`;
+      btn.textContent = `🔄 ${t('detailsFetching')} (${i + 1}/${totalCount})`;
 
-    const world = sortedWorlds[i];
+      const world = sortedWorlds[i];
 
-    const details = await fetchWorldDetails(world.id);
+      const details = await fetchWorldDetails(world.id);
 
-    if (details) {
-      const response = await chrome.runtime.sendMessage({
-        type: 'updateWorld',
-        world: { ...details, folderId: world.folderId }
-      });
+      if (details) {
+        const response = await chrome.runtime.sendMessage({
+          type: 'updateWorld',
+          world: { ...details, folderId: world.folderId }
+        });
 
-      if (response.success) {
-        successCount++;
+        if (response.success) {
+          successCount++;
+        } else {
+          failCount++;
+        }
       } else {
         failCount++;
       }
-    } else {
-      failCount++;
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      if ((i + 1) % 5 === 0 || i === sortedWorlds.length - 1) {
+        await loadData();
+        renderCurrentView();
+      }
     }
 
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    if ((i + 1) % 5 === 0 || i === sortedWorlds.length - 1) {
-      await loadData();
-      renderCurrentView();
-    }
+    showNotification(t('fetchComplete', { successCount, failCount }), 'success');
+    await loadData();
+    renderCurrentView();
+  } finally {
+    isFetchingDetails = false;
+    shouldCancelFetch = false;
+    btn.disabled = false;
+    btn.textContent = originalText;
   }
-
-  isFetchingDetails = false;
-  shouldCancelFetch = false;
-  btn.disabled = false;
-  btn.textContent = originalText;
-
-  showNotification(t('fetchComplete', { successCount, failCount }), 'success');
-  await loadData();
-  renderCurrentView();
 }
 
 // ========================================
-// リスト編集中の状態管理 (コミット処理)
+// Commit Buffer (List Editing) - Improved Version
 // ========================================
 async function handleRefreshOrConfirm() {
   const refreshBtn = document.getElementById('refreshBtn');
@@ -233,25 +237,40 @@ async function handleRefreshOrConfirm() {
     return;
   }
 
+  // 編集中の場合はコミット処理
   if (isEditingList) {
-    const expectedMovedCount = editingBuffer.movedWorlds.length;
-    const expectedDeletedCount = editingBuffer.deletedWorlds.length;
+    // ★Phase3修正: コミットデータのコピーを作成
+    const commitData = {
+      movedWorlds: [...editingBuffer.movedWorlds],
+      deletedWorlds: [...editingBuffer.deletedWorlds]
+    };
+
+    const expectedMovedCount = commitData.movedWorlds.length;
+    const expectedDeletedCount = commitData.deletedWorlds.length;
 
     logAction('COMMIT_START', {
       expectedMoved: expectedMovedCount,
       expectedDeleted: expectedDeletedCount
     });
+
+    // ★Phase3修正: isCommittingフラグをセット（状態保護）
+    isCommitting = true;
+    committingData = commitData; // グローバルに保存
+
     if (refreshText) {
       refreshText.textContent = t('commitInProgress');
     }
     refreshBtn.innerHTML = `🔄<span id="refreshText"> ${t('commitInProgress')}</span>`;
-    refreshBtn.textContent = t('commitInProgress');
     refreshBtn.disabled = true;
 
+    // UI更新（コミット中状態を表示）
+    updateEditingState();
+
     try {
+      // ★Phase3修正: コピーを送信（editingBufferは保持）
       const response = await chrome.runtime.sendMessage({
         type: 'COMMIT_BUFFER',
-        changes: editingBuffer
+        changes: commitData
       });
 
       logAction('COMMIT_RESPONSE', response);
@@ -260,6 +279,7 @@ async function handleRefreshOrConfirm() {
         const actualMovedCount = response.movedCount || 0;
         const actualDeletedCount = response.deletedCount || 0;
 
+        // ★Phase3修正: カウント検証
         if (actualMovedCount !== expectedMovedCount) {
           logError('COMMIT_COUNT_MISMATCH', 'Moved count mismatch', {
             expected: expectedMovedCount,
@@ -274,6 +294,22 @@ async function handleRefreshOrConfirm() {
           });
         }
 
+        // ★Phase3修正: コミット成功分をeditingBufferから削除（完全一致）
+        editingBuffer.movedWorlds = editingBuffer.movedWorlds.filter(
+          m => !commitData.movedWorlds.some(
+            cm => cm.worldId === m.worldId &&
+              cm.fromFolder === m.fromFolder &&
+              cm.toFolder === m.toFolder
+          )
+        );
+
+        editingBuffer.deletedWorlds = editingBuffer.deletedWorlds.filter(
+          d => !commitData.deletedWorlds.some(
+            cd => cd.worldId === d.worldId &&
+              cd.folderId === d.folderId
+          )
+        );
+
         if (actualMovedCount === 0 && actualDeletedCount === 0) {
           showNotification(t('commitSuccessNoChanges'), 'info');
         } else {
@@ -286,8 +322,9 @@ async function handleRefreshOrConfirm() {
           );
         }
 
-        editingBuffer = { movedWorlds: [], deletedWorlds: [] };
-        isEditingList = false;
+        // ★Phase3修正: editingBufferが空の場合のみisEditingListをfalseに
+        isEditingList = editingBuffer.movedWorlds.length > 0 ||
+          editingBuffer.deletedWorlds.length > 0;
 
       } else {
         const errorDetail = response.error || response.reason || 'Unknown';
@@ -302,14 +339,18 @@ async function handleRefreshOrConfirm() {
       console.error('Commit failed:', error);
       logError('COMMIT_EXCEPTION', error);
       showNotification(t('commitProcessFailed'), 'error');
+    } finally {
+      // ★Phase3修正: isCommittingフラグをクリア
+      isCommitting = false;
+      committingData = null;
     }
   }
 
+  // リフレッシュ処理
   if (refreshText) {
     refreshText.textContent = t('loadingView');
   }
   refreshBtn.innerHTML = `🔃<span id="refreshText"> ${t('loadingView')}</span>`;
-  refreshBtn.textContent = t('loadingText');
   refreshBtn.disabled = true;
 
   try {
@@ -331,7 +372,7 @@ async function handleRefreshOrConfirm() {
 }
 
 // ========================================
-// フォルダドロップ処理 - 🔥 修正版
+// Folder Drop Handler - Simplified Version
 // ========================================
 async function handleFolderDrop(toFolder, event) {
   if (isSyncing) {
@@ -368,7 +409,7 @@ async function handleFolderDrop(toFolder, event) {
         total: totalAfterMove
       });
 
-      if (totalAfterMove > 150) {
+      if (totalAfterMove > 200) {
         const folderName = getFolderDisplayName(toFolder);
         showNotification(t('vrcLimitExceededError', { folder: folderName }), 'error');
         logError('VRC_LIMIT_EXCEEDED', `Total would be ${totalAfterMove}`);
@@ -380,7 +421,6 @@ async function handleFolderDrop(toFolder, event) {
       const world = allWorlds.find(w => w.id === worldId);
       if (!world) continue;
 
-      // 🔥 削除済みチェック追加
       const isDeleted = editingBuffer.deletedWorlds.some(d => d.worldId === worldId);
       if (isDeleted) {
         logAction('SKIP_DELETED_WORLD', { worldId });
@@ -396,15 +436,22 @@ async function handleFolderDrop(toFolder, event) {
         continue;
       }
 
-      // 🔥 既存の移動を上書き（重複移動の防止）
+      // ★変更: 常にeditingBufferを直接使用
+      // 既存の移動を検索して元のfromFolderを保持
+      const existingMove = editingBuffer.movedWorlds.find(m => m.worldId === worldId);
+      const originalFromFolder = existingMove ? existingMove.fromFolder : world.folderId;
+
+      // 既存の移動を削除
       editingBuffer.movedWorlds = editingBuffer.movedWorlds.filter(m => m.worldId !== worldId);
 
+      // 新しい移動を追加（元のfromFolderを保持）
       editingBuffer.movedWorlds.push({
         worldId,
-        fromFolder: world.folderId,
+        fromFolder: originalFromFolder,
         toFolder
       });
 
+      // UIは常に即座に更新
       world.folderId = toFolder;
       movedCount++;
     }
@@ -441,7 +488,7 @@ async function handleFolderDrop(toFolder, event) {
 }
 
 // ========================================
-// 削除処理
+// Delete Operations
 // ========================================
 function deleteSingleWorld(worldId, folderId) {
   if (isSyncing) {
@@ -522,8 +569,22 @@ function confirmDelete() {
   closeModal('deleteModal');
 }
 
+// ログ関数
+function logAction(action, data) {
+  if (!DEBUG_LOG) return;
+  console.log(`[${new Date().toISOString()}] [ACTION] ${action}:`, data);
+}
+
+function logError(action, error, data = null) {
+  if (!DEBUG_LOG) return;
+  console.error(`[${new Date().toISOString()}] [ERROR] ${action}:`, error);
+  if (data) console.log('Data:', data);
+}
+// popup_actions.js v1.2.0 (後半)
+// DEBUG_LOGはpopup_core.jsで定義
+
 // ========================================
-// フォルダ操作モーダル
+// Folder Operations Modal
 // ========================================
 async function addNewFolder() {
   try {
@@ -622,7 +683,7 @@ async function confirmDeleteFolder() {
 }
 
 // ========================================
-// VRCフォルダモーダル
+// VRC Folder Modal
 // ========================================
 function openVRCFolderModal(folderId) {
   const vrcFolder = vrcFolders.find(f => f.id === folderId);
@@ -684,7 +745,7 @@ async function openSyncMenu() {
 }
 
 // ========================================
-// ワールド追加
+// Add World Manually
 // ========================================
 async function addWorldManual() {
   pendingWorldData = null;
@@ -915,7 +976,7 @@ async function confirmAddWorldWithFolder(folderId, worldIdOrUrl = null) {
 }
 
 // ========================================
-// コンテキストメニューからのワールド追加の遷移処理
+// Context Menu Pending World Handler
 // ========================================
 async function checkPendingWorldFromContext() {
   try {
@@ -947,7 +1008,7 @@ async function checkPendingWorldFromContext() {
 }
 
 // ========================================
-// フォルダ移動モーダル
+// Move Folder Modal - Fixed Version
 // ========================================
 function openMoveFolderModal(worldIds) {
   currentMovingWorldIds = worldIds;
@@ -993,14 +1054,11 @@ async function confirmMoveFolderWithId(toFolder) {
       const world = allWorlds.find(w => w.id === worldId);
       if (!world) continue;
 
-      const fromFolder = world.folderId;
-
-      if (fromFolder === toFolder) {
+      if (world.folderId === toFolder) {
         skippedCount++;
         continue;
       }
 
-      // 🔥 削除済みチェック追加
       const isDeleted = editingBuffer.deletedWorlds.some(d => d.worldId === worldId);
       if (isDeleted) {
         logAction('SKIP_DELETED_WORLD', { worldId });
@@ -1008,7 +1066,7 @@ async function confirmMoveFolderWithId(toFolder) {
         continue;
       }
 
-      const isVRCToVRC = fromFolder.startsWith('worlds') && toFolder.startsWith('worlds');
+      const isVRCToVRC = world.folderId.startsWith('worlds') && toFolder.startsWith('worlds');
       const isToVRC = toFolder.startsWith('worlds');
 
       if ((isVRCToVRC || isToVRC) &&
@@ -1018,12 +1076,18 @@ async function confirmMoveFolderWithId(toFolder) {
         continue;
       }
 
-      // 🔥 既存の移動を上書き（重複移動の防止）
+      // ★変更: 常にeditingBufferを直接使用
+      // 既存の移動を検索して元のfromFolderを保持
+      const existingMove = editingBuffer.movedWorlds.find(m => m.worldId === worldId);
+      const originalFromFolder = existingMove ? existingMove.fromFolder : world.folderId;
+
+      // 既存の移動を削除
       editingBuffer.movedWorlds = editingBuffer.movedWorlds.filter(m => m.worldId !== worldId);
 
+      // 新しい移動を追加（元のfromFolderを保持）
       editingBuffer.movedWorlds.push({
         worldId,
-        fromFolder,
+        fromFolder: originalFromFolder,
         toFolder
       });
 
@@ -1054,7 +1118,7 @@ async function confirmMoveFolderWithId(toFolder) {
 }
 
 // ========================================
-// 共通フォルダ選択UI生成
+// Common Folder Select UI Generation
 // ========================================
 function generateFolderOptions(includeVRC = true, includeAll = false) {
   const options = [];
@@ -1087,7 +1151,7 @@ function generateFolderOptions(includeVRC = true, includeAll = false) {
   if (includeVRC) {
     vrcFolders.forEach(folder => {
       const count = allWorlds.filter(w => w.folderId === folder.id).length;
-      const isOverLimit = count >= 150;
+      const isOverLimit = count >= 200;
       const isOverSyncLimit = count >= 100;
 
       options.push({
@@ -1240,7 +1304,7 @@ function showFolderSelectModal(options) {
 }
 
 // ========================================
-// インポート/エクスポート
+// Import/Export
 // ========================================
 function openImportExportModal(mode) {
   currentImportExportMode = mode;
@@ -1320,7 +1384,6 @@ function openFolderSelectForExport(type) {
     }
   });
 }
-// popup_actions.js v1.2.0 (後半)
 
 function openFolderSelectForImport(type) {
   const folderOptions = generateFolderOptions(false, false);
@@ -1403,7 +1466,7 @@ function getDateString() {
 }
 
 // ========================================
-// ファイルインポート - 🔥 修正版 (重複解消追加)
+// File Import Handler - Fixed Version
 // ========================================
 async function handleFileImport(event) {
   const file = event.target.files[0];
@@ -1557,13 +1620,11 @@ async function handleFileImport(event) {
       renderFolderTabs();
       renderCurrentView();
 
-      // 🔥 インポート後に重複自動解消を実行
       if (response.addedCount > 0) {
         showNotification(t('fetchingThumbnails'), 'info');
         setTimeout(() => {
           fetchAllDetails(targetFolder);
-          
-          // 🔥 重複自動解消を追加
+
           if (autoResolveDuplicates) {
             setTimeout(() => autoResolveDuplicatesIfNeeded(), 2000);
           }
@@ -1591,7 +1652,7 @@ async function handleFileImport(event) {
 }
 
 // ========================================
-// モーダル操作 (汎用)
+// Modal Operations (Generic)
 // ========================================
 function openModal(modalId) {
   document.getElementById(modalId).classList.add('show');
@@ -1599,4 +1660,16 @@ function openModal(modalId) {
 
 function closeModal(modalId) {
   document.getElementById(modalId).classList.remove('show');
+}
+
+// ログ関数
+function logAction(action, data) {
+  if (!DEBUG_LOG) return;
+  console.log(`[${new Date().toISOString()}] [ACTION] ${action}:`, data);
+}
+
+function logError(action, error, data = null) {
+  if (!DEBUG_LOG) return;
+  console.error(`[${new Date().toISOString()}] [ERROR] ${action}:`, error);
+  if (data) console.log('Data:', data);
 }

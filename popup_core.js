@@ -10,21 +10,21 @@ const translations = {
         // 編集バナー
         editingBannerText: 'リスト編集中',
         changeCount: '{count}件の変更',
-        
+
         // 検索
         searchPlaceholder: '🔍 ワールド名・作者名・IDで検索...',
-        
+
         // ワールド追加
         addWorldUrlPlaceholder: 'wrld_... または https://vrchat.com/home/world/wrld_...',
-        
+
         // 選択UI
         selectAllLabel: '全選択',
-        
+
         // ソート
         sortAdded: '追加順',
         sortName: 'ワールド名',
         sortAuthor: '作者名',
-        
+
         // ページネーション
         itemsText: 'items',
         displayCountLabel: '表示数',
@@ -35,7 +35,7 @@ const translations = {
         prevPageText: '◀ Prev',
         nextPageText: 'Next ▶',
         currentPageOf: '{current} / {total}',
-        
+
         // ボタン
         addWorldText: 'ワールドを追加',
         fetchDetailsText: 'サムネイル取得',
@@ -44,7 +44,7 @@ const translations = {
         confirmText: '確定',
         importText: 'インポート',
         exportText: 'エクスポート',
-        
+
         // 状態表示
         emptyState: 'ワールドがありません',
         loadingState: '読み込み中...',
@@ -52,24 +52,24 @@ const translations = {
         folderAll: 'All',
         unknownAuthor: '不明',
         worldsNotFound: 'ワールドが見つかりません',
-        
+
         // ワールドアクション
         openInNewTab: '新しいタブで開く',
         copyUrl: 'URLをコピー',
         refetchDetails: '詳細を再取得',
         deleteWorld: '削除',
-        
+
         // 制限関連
         syncInProgress: '同期中は操作できません',
-        vrcLimitExceeded: '{folder}は150件を超えるため移動できません',
-        
+        vrcLimitExceeded: '{folder}は200件を超えるため移動できません',
+
         // モーダル関連
         renameFolderTitle: '✏️ フォルダ名を変更',
         folderNamePlaceholder: '新しいフォルダ名を入力...',
         renameConfirm: '変更',
         renameCancel: 'キャンセル',
         deleteFolderBtn: '削除',
-        
+
         vrcFolderModalTitle: '🔄 VRChatと同期',
         vrcFolderDescription1: 'VRChat公式のお気に入りワールド一覧(4フォルダすべて)と同期します:',
         vrcFolderWarning: '⚠️ 注意: 拡張機能で整理したワールド一覧をVRChat公式に反映します',
@@ -77,7 +77,7 @@ const translations = {
         vrcFetchBtn: '📥 取得',
         vrcSyncBtn: '🔄 同期',
         vrcCancelBtn: 'キャンセル',
-        
+
         importExportTitle: '📥 インポート',
         exportTitle: '📤 エクスポート',
         importExportCancel: 'キャンセル',
@@ -85,18 +85,18 @@ const translations = {
         importTypeJsonDesc: '拡張機能の標準形式(全データ)',
         importTypeCsvTitle: 'CSV形式',
         importTypeCsvDesc: 'VRCX等(WorldID, World Name)/ワールド情報のみ',
-        
+
         deleteModalTitle: '🗑️ 削除確認',
         deleteConfirm: '削除',
         deleteCancel: 'キャンセル',
         deleteSelectedConfirm: '選択中の{count}個のワールドを削除しますか?',
         deleteSingleConfirm: '「{name}」を削除しますか?',
-        
+
         // ステータスバッジ
         statusDeleted: '🗑️ Deleted',
         statusPrivate: '🔒 Private',
-        statusPublic: '🌐 Public',
-        
+        statusPublic: '🌍 Public',
+
         // 通知メッセージ
         urlCopied: 'URLをコピーしました',
         copyFailed: 'コピーに失敗しました',
@@ -111,16 +111,18 @@ const translations = {
         fetchComplete: '取得完了: 成功 {successCount}件 / 失敗 {failCount}件',
         updateComplete: '更新完了: 成功 {successCount}件 / 失敗 {failCount}件',
         commitInProgress: '確定中...',
+        rateLimitWaiting: '60秒間の処理上限に達しました。しばらくお待ちください...',
         commitSuccess: '変更を確定しました(移動: {moved}件, 削除: {deleted}件)',
         commitSuccessNoChanges: '変更はありませんでした',
         commitFailed: '確定に失敗しました: {error}',
         commitProcessFailed: '確定処理に失敗しました',
+        autoCommitPending: '追加の変更を自動で反映します...',
         loadingView: '読み込み中...',
         loadingText: '読み込み中...',
         reload: '再表示',
         reloadFailed: '再読み込みに失敗しました',
         operationDuringSync: '同期中は操作できません',
-        vrcLimitExceededError: '{folder}は150件を超えているため追加できません',
+        vrcLimitExceededError: '{folder}は200件を超えているため追加できません',
         privateWorldsCannotMove: 'プライベート・削除済ワールドは移動できません: 「{names}{more}」',
         worldsMovedConfirm: '{count}個のワールドを移動しました(確定ボタンを押してください)',
         worldsMoved: '{count}個のワールドを移動しました(確定ボタンを押してください)',
@@ -153,7 +155,7 @@ const translations = {
         worldAlreadyRegistered: '既に登録されています',
         worldExistsInFolder: '「{folderName}」に既に登録されています',
         privateWorldCannotAdd: '「{worldName}」はプライベートまたは削除済みのためVRCフォルダに追加できません',
-        vrcLimitExceededAdd: 'VRCフォルダが150件を超えているため追加できません',
+        vrcLimitExceededAdd: 'VRCフォルダが200件を超えているため追加できません',
         syncLimitExceededAdd: '共有ストレージが1000件を超えているため追加できません',
         addWorldFailed: 'ワールドの追加に失敗しました',
         fetchingWorldDetails: 'ワールド情報を取得中...',
@@ -186,7 +188,7 @@ const translations = {
         importNoWorld: 'インポートするワールドがありません',
         importingWorlds: '{count}件のワールドをインポート中...',
         importComplete: 'インポート完了: 追加 {addedCount}件 / 移動 {movedCount}件 / スキップ {skippedCount}件',
-        vrcLimitExceededImport: 'VRCフォルダの上限(150件)を超えています',
+        vrcLimitExceededImport: 'VRCフォルダの上限(200件)を超えています',
         syncLimitExceededImport: '共有ストレージの上限(1000件)を超えています',
         limitExceededPartial: '一部のワールドが制限を超えたためインポートできませんでした',
         unknownError: '不明なエラー',
@@ -202,7 +204,7 @@ const translations = {
         contextMenuDisabled: 'コンテキストメニューは無効です',
         privateWorldsCannotMoveWarning: 'プライベート・削除済ワールドはVRCフォルダに移動できません: 「{names}{more}」',
         dataLoadFailed: 'データの読み込みに失敗しました',
-        
+
         // 重複解消
         resolvingDuplicates: '重複ワールドを解消中...',
         duplicatesResolved: '{count}件の重複を解消しました',
@@ -218,21 +220,21 @@ const translations = {
         // Editing Banner
         editingBannerText: 'List Editing',
         changeCount: '{count} changes',
-        
+
         // Search
         searchPlaceholder: '🔍 Search by world name, author, or ID...',
-        
+
         // Add World
         addWorldUrlPlaceholder: 'wrld_... or https://vrchat.com/home/world/wrld_...',
-        
+
         // Selection UI
         selectAllLabel: 'Select All',
-        
+
         // Sort
         sortAdded: 'Added',
         sortName: 'World Name',
         sortAuthor: 'Author',
-        
+
         // Pagination
         itemsText: 'items',
         displayCountLabel: 'Display',
@@ -243,7 +245,7 @@ const translations = {
         prevPageText: '◀ Prev',
         nextPageText: 'Next ▶',
         currentPageOf: '{current} / {total}',
-        
+
         // Buttons
         addWorldText: 'Add World',
         fetchDetailsText: 'Fetch Thumbnails',
@@ -252,7 +254,7 @@ const translations = {
         confirmText: 'Confirm',
         importText: 'Import',
         exportText: 'Export',
-        
+
         // Status
         emptyState: 'No worlds found',
         loadingState: 'Loading...',
@@ -260,24 +262,24 @@ const translations = {
         folderAll: 'All',
         unknownAuthor: 'Unknown',
         worldsNotFound: 'No worlds found',
-        
+
         // World Actions
         openInNewTab: 'Open in new tab',
         copyUrl: 'Copy URL',
         refetchDetails: 'Refetch details',
         deleteWorld: 'Delete',
-        
+
         // Limitations
         syncInProgress: 'Cannot operate during sync',
-        vrcLimitExceeded: '{folder} cannot exceed 150 items',
-        
+        vrcLimitExceeded: '{folder} cannot exceed 200 items',
+
         // Modal
         renameFolderTitle: '✏️ Rename Folder',
         folderNamePlaceholder: 'Enter new folder name...',
         renameConfirm: 'Rename',
         renameCancel: 'Cancel',
         deleteFolderBtn: 'Delete',
-        
+
         vrcFolderModalTitle: '🔄 Sync with VRChat',
         vrcFolderDescription1: 'Sync with VRChat official favorite worlds (all 4 folders):',
         vrcFolderWarning: '⚠️ Note: This will reflect your organized list to VRChat official',
@@ -285,7 +287,7 @@ const translations = {
         vrcFetchBtn: '📥 Fetch',
         vrcSyncBtn: '🔄 Sync',
         vrcCancelBtn: 'Cancel',
-        
+
         importExportTitle: '📥 Import',
         exportTitle: '📤 Export',
         importExportCancel: 'Cancel',
@@ -293,18 +295,18 @@ const translations = {
         importTypeJsonDesc: 'Standard format (full data)',
         importTypeCsvTitle: 'CSV Format',
         importTypeCsvDesc: 'VRCX etc (WorldID, World Name) / World info only',
-        
+
         deleteModalTitle: '🗑️ Confirm Deletion',
         deleteConfirm: 'Delete',
         deleteCancel: 'Cancel',
         deleteSelectedConfirm: 'Delete {count} selected worlds?',
         deleteSingleConfirm: 'Delete "{name}"?',
-        
+
         // Status Badges
         statusDeleted: '🗑️ Deleted',
         statusPrivate: '🔒 Private',
-        statusPublic: '🌐 Public',
-        
+        statusPublic: '🌍 Public',
+
         // Notifications
         urlCopied: 'URL copied',
         copyFailed: 'Failed to copy',
@@ -319,16 +321,18 @@ const translations = {
         fetchComplete: 'Fetch complete: {successCount} success / {failCount} failed',
         updateComplete: 'Update complete: {successCount} success / {failCount} failed',
         commitInProgress: 'Committing...',
+        rateLimitWaiting: 'Processing limit reached (60s). Please wait...',
         commitSuccess: 'Changes committed (moved: {moved}, deleted: {deleted})',
         commitSuccessNoChanges: 'No changes to commit',
         commitFailed: 'Commit failed: {error}',
         commitProcessFailed: 'Commit process failed',
+        autoCommitPending: 'Automatically committing pending changes...',
         loadingView: 'Loading...',
         loadingText: 'Loading...',
         reload: 'Refresh',
         reloadFailed: 'Failed to reload',
         operationDuringSync: 'Cannot operate during sync',
-        vrcLimitExceededError: '{folder} exceeds 150 items limit',
+        vrcLimitExceededError: '{folder} exceeds 200 items limit',
         privateWorldsCannotMove: 'Private/deleted worlds cannot be moved: "{names}{more}"',
         worldsMovedConfirm: '{count} worlds moved (please confirm)',
         worldsMoved: '{count} worlds moved (please confirm)',
@@ -361,7 +365,7 @@ const translations = {
         worldAlreadyRegistered: 'Already registered',
         worldExistsInFolder: 'Already registered in "{folderName}"',
         privateWorldCannotAdd: '"{worldName}" is private/deleted and cannot be added to VRC folder',
-        vrcLimitExceededAdd: 'VRC folder exceeds 150 items limit',
+        vrcLimitExceededAdd: 'VRC folder exceeds 200 items limit',
         syncLimitExceededAdd: 'Sync storage exceeds 1000 items limit',
         addWorldFailed: 'Failed to add world',
         fetchingWorldDetails: 'Fetching world details...',
@@ -394,7 +398,7 @@ const translations = {
         importNoWorld: 'No worlds to import',
         importingWorlds: 'Importing {count} worlds...',
         importComplete: 'Import complete: {addedCount} added / {movedCount} moved / {skippedCount} skipped',
-        vrcLimitExceededImport: 'VRC folder limit (150) exceeded',
+        vrcLimitExceededImport: 'VRC folder limit (200) exceeded',
         syncLimitExceededImport: 'Sync storage limit (1000) exceeded',
         limitExceededPartial: 'Some worlds exceeded limits',
         unknownError: 'Unknown error',
@@ -410,7 +414,7 @@ const translations = {
         contextMenuDisabled: 'Context menu is disabled',
         privateWorldsCannotMoveWarning: 'Private/deleted worlds cannot be moved to VRC folders: "{names}{more}"',
         dataLoadFailed: 'Failed to load data',
-        
+
         // Duplicate resolution
         resolvingDuplicates: 'Resolving duplicate worlds...',
         duplicatesResolved: '{count} duplicates resolved',
@@ -431,8 +435,8 @@ async function initSettings() {
         if (result.settings) {
             currentLang = result.settings.language || 'ja';
             currentTheme = result.settings.theme || 'dark';
-            autoResolveDuplicates = result.settings.autoResolveDuplicates !== undefined 
-                ? result.settings.autoResolveDuplicates 
+            autoResolveDuplicates = result.settings.autoResolveDuplicates !== undefined
+                ? result.settings.autoResolveDuplicates
                 : true;
             duplicateStrategy = result.settings.duplicateStrategy || 'keep_first';
             applyTheme();
@@ -455,7 +459,7 @@ function applyTheme() {
 // ==================== 言語適用 ====================
 function applyLanguage() {
     document.documentElement.lang = currentLang;
-    
+
     Object.keys(translations[currentLang]).forEach(key => {
         const element = document.getElementById(key);
         if (element) {
@@ -470,7 +474,7 @@ function applyLanguage() {
             }
         }
     });
-    
+
     const searchInput = document.getElementById('searchInput');
     if (searchInput) {
         searchInput.placeholder = translations[currentLang]['searchPlaceholder'];
@@ -480,11 +484,11 @@ function applyLanguage() {
 // 翻訳関数(動的メッセージ用)
 function t(key, params = {}) {
     let text = translations[currentLang][key] || key;
-    
+
     Object.keys(params).forEach(param => {
         text = text.replace(`{${param}}`, params[param]);
     });
-    
+
     return text;
 }
 
@@ -532,6 +536,10 @@ let editingBuffer = {
     movedWorlds: [],
     deletedWorlds: []
 };
+
+// ★追加: コミット処理中の状態管理
+let isCommitting = false;
+let committingData = null; // コミット中のデータ（UI表示用）
 
 // モーダル状態
 let pendingWorldData = null;

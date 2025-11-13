@@ -1,4 +1,4 @@
-// bg_import_export_service.js v1.2.0 (前半)
+// bg_import_export_service.js v1.2.0
 console.log('[ImportExportService] Loaded');
 
 // ========================================
@@ -144,7 +144,7 @@ async function batchImportWorlds(request, sendResponse) {
     const worldsToAddCustom = [];
     const worldsToAddVRC = [];
     const worldsToMove = [];
-    const detailsToSaveCustom = {};
+    const detailsToSave = {};
 
     for (const world of importWorlds) {
       const folderId = isFullBackup ? (world.folderId || 'none') : (targetFolder || 'none');
@@ -167,7 +167,6 @@ async function batchImportWorlds(request, sendResponse) {
         if (folderId.startsWith('worlds') &&
           (world.releaseStatus === 'private' || world.releaseStatus === 'deleted')) {
           skippedCount++;
-          // 🔥 修正: エラーハンドラー使用
           const error = createPrivateWorldError(world.name);
           errors.push({ id: world.id, reason: error.reason, details: error.message });
           continue;
@@ -176,9 +175,16 @@ async function batchImportWorlds(request, sendResponse) {
         // VRCフォルダとカスタムフォルダで分類
         if (folderId.startsWith('worlds')) {
           worldsToAddVRC.push(worldToAdd);
+          // ★追加: VRCフォルダの詳細情報も保存対象に
+          detailsToSave[world.id] = {
+            name: worldToAdd.name,
+            authorName: worldToAdd.authorName,
+            releaseStatus: worldToAdd.releaseStatus,
+            thumbnailImageUrl: worldToAdd.thumbnailImageUrl
+          };
         } else {
           worldsToAddCustom.push(worldToAdd);
-          detailsToSaveCustom[world.id] = {
+          detailsToSave[world.id] = {
             name: worldToAdd.name,
             authorName: worldToAdd.authorName,
             releaseStatus: worldToAdd.releaseStatus,
@@ -222,7 +228,6 @@ async function batchImportWorlds(request, sendResponse) {
       if (folderId.startsWith('worlds') &&
         (world.releaseStatus === 'private' || world.releaseStatus === 'deleted')) {
         skippedCount++;
-        // 🔥 修正: エラーハンドラー使用
         const error = createPrivateWorldError(world.name);
         errors.push({ id: world.id, reason: error.reason, details: error.message });
         continue;
@@ -231,9 +236,16 @@ async function batchImportWorlds(request, sendResponse) {
       // VRCフォルダとカスタムフォルダで分類
       if (folderId.startsWith('worlds')) {
         worldsToAddVRC.push(worldToAdd);
+        // ★追加: VRCフォルダの詳細情報も保存対象に
+        detailsToSave[world.id] = {
+          name: worldToAdd.name,
+          authorName: worldToAdd.authorName,
+          releaseStatus: worldToAdd.releaseStatus,
+          thumbnailImageUrl: worldToAdd.thumbnailImageUrl
+        };
       } else {
         worldsToAddCustom.push(worldToAdd);
-        detailsToSaveCustom[world.id] = {
+        detailsToSave[world.id] = {
           name: worldToAdd.name,
           authorName: worldToAdd.authorName,
           releaseStatus: worldToAdd.releaseStatus,
@@ -266,7 +278,6 @@ async function batchImportWorlds(request, sendResponse) {
 
       if (syncWorlds.length + newWorlds.length > SYNC_WORLD_LIMIT) {
         const remaining = SYNC_WORLD_LIMIT - syncWorlds.length;
-        // 🔥 修正: エラーハンドラー使用
         const error = createLimitError('sync_limit', { remaining });
         errors.push({
           reason: error.reason,
@@ -283,9 +294,6 @@ async function batchImportWorlds(request, sendResponse) {
       syncWorlds.push(...newWorlds);
       await saveWorldsChunked(syncWorlds);
       addedCount += newWorlds.length;
-
-      // 詳細情報を一括保存
-      await saveWorldDetailsBatch(detailsToSaveCustom);
 
       logAction('IMPORT_CUSTOM_COMPLETE', { count: newWorlds.length });
     }
@@ -307,7 +315,6 @@ async function batchImportWorlds(request, sendResponse) {
 
         if (count >= VRC_FOLDER_LIMIT) {
           skippedCount++;
-          // 🔥 修正: エラーハンドラー使用
           const error = createLimitError('vrc_limit', { folderId: world.folderId });
           errors.push({ id: world.id, reason: error.reason, details: error.message });
           continue;
@@ -317,12 +324,24 @@ async function batchImportWorlds(request, sendResponse) {
         folderCounts[world.folderId] = count + 1;
       }
 
-      // 一括書き込み
-      vrcWorlds.push(...validWorlds);
+      // ★修正: vrcWorldsには最小限のデータのみ保存
+      const minimalWorlds = validWorlds.map(w => ({
+        id: w.id,
+        folderId: w.folderId,
+        favoriteRecordId: w.favoriteRecordId || null
+      }));
+      
+      vrcWorlds.push(...minimalWorlds);
       await chrome.storage.local.set({ vrcWorlds });
       addedCount += validWorlds.length;
 
       logAction('IMPORT_VRC_COMPLETE', { count: validWorlds.length });
+    }
+
+    // ★追加: すべての詳細情報を一括保存（VRC + Custom）
+    if (Object.keys(detailsToSave).length > 0) {
+      logAction('IMPORT_SAVING_ALL_DETAILS', { count: Object.keys(detailsToSave).length });
+      await saveWorldDetailsBatch(detailsToSave);
     }
 
     logAction('IMPORT_COMPLETE', { addedCount, movedCount, skippedCount, errors: errors.length });
@@ -369,7 +388,7 @@ async function getAllWorldDetailsForExport(sendResponse) {
     const folders = sync.folders || [];
     const vrcFolderData = sync.vrcFolderData || {};
 
-    // 1. 詳細情報を全て取得
+    // 1. 詳細情報をすべて取得（worldDetails_*から統一的に取得）
     const worldDetailsMap = await getAllWorldDetailsInternal();
 
     // 2. syncWorlds に詳細情報をマージ
@@ -386,8 +405,21 @@ async function getAllWorldDetailsForExport(sendResponse) {
       };
     });
 
-    // 3. VRC Worlds も結合
-    const allWorlds = [...exportedWorlds, ...localVRCWorlds];
+    // 3. VRC Worlds にも詳細情報をマージ
+    const exportedVRCWorlds = localVRCWorlds.map(vw => {
+      const details = worldDetailsMap[vw.id] || {};
+      return {
+        id: vw.id,
+        folderId: vw.folderId,
+        name: details.name || vw.id,
+        authorName: details.authorName || null,
+        releaseStatus: details.releaseStatus || null,
+        thumbnailImageUrl: details.thumbnailImageUrl || null,
+        favoriteRecordId: vw.favoriteRecordId || null
+      };
+    });
+
+    const allWorlds = [...exportedWorlds, ...exportedVRCWorlds];
 
     // 4. 完全なバックアップデータを作成
     const exportData = {

@@ -28,8 +28,8 @@ function createLimitError(limitType, details = {}) {
   const errorMap = {
     'vrc_limit': {
       reason: 'vrc_limit_exceeded',
-      message: 'VRCフォルダが150件を超えています',
-      userMessage: 'VRCフォルダの上限(150件)に達しています。これ以上追加できません。'
+      message: 'VRCフォルダが200件を超えています',
+      userMessage: 'VRCフォルダの上限(200件)に達しています。これ以上追加できません。'
     },
     'vrc_sync_limit': {
       reason: 'vrc_sync_limit_exceeded',

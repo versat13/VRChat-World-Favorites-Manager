@@ -1,8 +1,7 @@
-// background.js v1.2.0
-console.log('[Background] VRChat World Favorites Manager v1.2.0 loaded');
+// background.js v1.2.2 (ブロードキャスト修正版)
 
 // ========================================
-// モジュール読み込み
+// Module Loading
 // ========================================
 importScripts(
   'bg_constants.js',
@@ -15,13 +14,23 @@ importScripts(
 );
 
 // ========================================
-// 🔥 VRCアクション中断管理
+// Global State - Edit Buffer Management
+// ========================================
+let isEditingList = false;
+let editingBuffer = {
+  movedWorlds: [],
+  deletedWorlds: []
+};
+
+// ========================================
+// VRC Action Abort Management
 // ========================================
 const activeVRCProcesses = new Map();
 
 function abortVRCAction(windowId) {
   if (activeVRCProcesses.has(windowId)) {
     activeVRCProcesses.get(windowId).aborted = true;
+    activeVRCProcesses.delete(windowId);
     logAction('VRC_ACTION_ABORTED', { windowId });
   }
 }
@@ -39,7 +48,7 @@ function cleanupVRCAction(windowId) {
 }
 
 // ========================================
-// コンテキストメニュー初期化・管理
+// Context Menu Initialization & Management
 // ========================================
 
 let isInitializingContextMenus = false;
@@ -50,9 +59,9 @@ async function initializeContextMenus() {
     return;
   }
 
-  isInitializingContextMenus = true;
-
   try {
+    isInitializingContextMenus = true;
+
     await chrome.contextMenus.removeAll();
     logAction('CONTEXT_MENU_REMOVED_ALL', 'Cleared all existing context menus');
 
@@ -67,7 +76,6 @@ async function initializeContextMenus() {
 
     if (!contextMenuEnabled) {
       logAction('CONTEXT_MENU_DISABLED', 'Context menu is disabled by settings');
-      isInitializingContextMenus = false;
       return;
     }
 
@@ -102,7 +110,7 @@ async function initializeContextMenus() {
 }
 
 // ========================================
-// URLからワールドIDを抽出
+// Extract World ID from URL
 // ========================================
 function extractWorldIdFromUrl(url) {
   if (!url) return null;
@@ -117,7 +125,7 @@ function extractWorldIdFromUrl(url) {
 }
 
 // ========================================
-// 案A: 未分類に直接追加
+// Case A: Quick Add to Uncategorized
 // ========================================
 async function handleQuickAdd(info, tab) {
   try {
@@ -167,7 +175,8 @@ async function handleQuickAdd(info, tab) {
       showNotification(`「${details.name}」を未分類に追加しました`, 'success');
       logAction('CONTEXT_MENU_QUICK_ADD_SUCCESS', { worldId });
     } else {
-      showNotification(addResult.message || '追加に失敗しました', 'error');
+      const errorMsg = addResult.userMessage || addResult.message || '追加に失敗しました';
+      showNotification(errorMsg, 'error');
       logError('CONTEXT_MENU_QUICK_ADD_FAILED', addResult.reason || addResult.error, { worldId });
     }
 
@@ -180,7 +189,7 @@ async function handleQuickAdd(info, tab) {
 }
 
 // ========================================
-// 案B: フォルダ選択
+// Case B: Folder Selection
 // ========================================
 async function handleFolderSelect(info, tab) {
   try {
@@ -215,7 +224,7 @@ async function handleFolderSelect(info, tab) {
 }
 
 // ========================================
-// 通知ヘルパー関数
+// Notification Helper
 // ========================================
 function showNotification(message, type = 'info') {
   try {
@@ -235,7 +244,7 @@ function showNotification(message, type = 'info') {
 }
 
 // ========================================
-// 初期化処理
+// Initialization
 // ========================================
 chrome.runtime.onInstalled.addListener(async () => {
   logAction('EXTENSION_INSTALLED', 'Initializing extension');
@@ -249,7 +258,7 @@ chrome.runtime.onStartup.addListener(async () => {
 });
 
 // ========================================
-// コンテキストメニュークリックイベント
+// Context Menu Click Event
 // ========================================
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const menuId = info.menuItemId;
@@ -261,7 +270,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 });
 
 // ========================================
-// VRC連携ブリッジ用 進捗通知ヘルパー
+// VRC Bridge Progress Notification Helper
 // ========================================
 
 function notifyBridgeWindow(windowId, action, payload = {}) {
@@ -276,60 +285,74 @@ function notifyBridgeWindow(windowId, action, payload = {}) {
 
   logAction('NOTIFY_BRIDGE_WINDOW', { windowId, action, payloadKeys: Object.keys(payload) });
 
-  chrome.runtime.sendMessage({
-    windowId: windowId,
-    action: action,
-    ...payload
-  }, (response) => {
+  chrome.windows.get(windowId, (window) => {
     if (chrome.runtime.lastError) {
-      logError('NOTIFY_BRIDGE_SEND_FAILED', chrome.runtime.lastError.message, { windowId, action });
+      return;
     }
+
+    chrome.runtime.sendMessage({
+      windowId: windowId,
+      action: action,
+      ...payload
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        return;
+      }
+    });
   });
 }
 
 // ========================================
-// メッセージハンドラー (ルーター)
+// Message Handler (Router)
 // ========================================
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   logAction('MESSAGE_RECEIVED', { type: request.type });
 
   switch (request.type) {
-    // 🔥 VRC同期完了通知 (popup.html向けなので無視)
     case 'VRC_SYNC_COMPLETED':
-      // このメッセージはpopup.html向けなのでbackgroundでは処理不要
-      // エラーログを出さないために明示的にハンドル
       sendResponse({ received: true });
       return true;
 
     case 'getAllWorlds':
       getAllWorlds(sendResponse);
       return true;
+
     case 'getVRCWorlds':
       getVRCWorlds(sendResponse);
       return true;
+
     case 'addWorld':
       addWorld(request.world, sendResponse);
       return true;
+
     case 'removeWorld':
       removeWorld(request.worldId, request.folderId, sendResponse);
       return true;
+
     case 'updateWorld':
       updateWorld(request.world, sendResponse);
       return true;
+
     case 'moveWorld':
       moveWorld(request.worldId, request.fromFolder, request.toFolder, request.newFavoriteId, sendResponse);
       return true;
+
     case 'batchUpdateWorlds':
       batchUpdateWorlds(request.changes, sendResponse);
       return true;
+
     case 'COMMIT_BUFFER':
       commitBuffer(request, sendResponse, (progress) => {
-        // popup にリアルタイム通知
-        chrome.runtime.sendMessage(progress).catch(e => {
-          console.warn('Failed to send progress to popup:', e.message);
+        // ★シンプル化: chrome.runtime.sendMessage() だけで全popupに配信される
+        chrome.runtime.sendMessage(progress, (response) => {
+          // 受信側がない場合のエラーは無視
+          if (chrome.runtime.lastError) {
+            // エラーログは出さない（正常動作）
+          }
         });
       });
       return true;
+
     case 'CHECK_RATE_LIMIT':
       const waitMs = rateLimiter.getWaitTime();
       sendResponse({
@@ -337,75 +360,111 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         waitSeconds: Math.ceil(waitMs / 1000)
       });
       return true;
+
     case 'detectDuplicates':
       detectDuplicates(sendResponse);
       return true;
+
     case 'resolveDuplicates':
       resolveDuplicates(request.strategy || 'keep_first', sendResponse);
       return true;
+
     case 'getFolders':
       getFolders(sendResponse);
       return true;
+
     case 'addFolder':
       addFolder(sendResponse);
       return true;
+
     case 'removeFolder':
       removeFolder(request.folderId, sendResponse);
       return true;
+
     case 'renameFolder':
       renameFolder(request.folderId, request.newName, sendResponse);
       return true;
+
     case 'getStorageStats':
       getStorageStats(sendResponse);
       return true;
+
     case 'START_VRC_ACTION':
       handleVRCAction(request, sendResponse);
       return true;
+
     case 'CANCEL_VRC_ACTION':
       abortVRCAction(request.windowId);
       sendResponse({ success: true });
       return true;
+
     case 'getSettings':
       getSettings(sendResponse);
       return true;
+
     case 'saveSettings':
       saveSettings(request.settings, sendResponse);
       return true;
+
     case 'updateContextMenus':
       initializeContextMenus().then(() => sendResponse({ success: true }));
       return true;
+
     case 'resetAllData':
       resetAllData(sendResponse);
       return true;
+
     case 'fetchAllVRCFolders':
       console.warn('[Background] Deprecated: fetchAllVRCFolders called. Use START_VRC_ACTION.');
       fetchAllVRCFolders(sendResponse);
       return true;
+
     case 'syncAllFavorites':
       console.warn('[Background] Deprecated: syncAllFavorites called. Use START_VRC_ACTION.');
       syncAllFavorites(sendResponse);
       return true;
+
     case 'getSingleWorldDetails':
       getSingleWorldDetails(request.worldId, sendResponse);
       return true;
+
     case 'getVRCFavoriteInfo':
       getVRCFavoriteInfo(request.worldId, sendResponse);
       return true;
+
     case 'moveVRCWorldFolder':
       moveVRCWorldFolder(request.worldId, request.favoriteRecordId, request.fromFolder, request.toFolder, sendResponse);
       return true;
+
     case 'addVRCFavorite':
       addVRCFavorite(request.worldId, request.folderId, sendResponse);
       return true;
+
     case 'deleteVRCFavorite':
       deleteVRCFavorite(request.favoriteRecordId, sendResponse);
       return true;
+
     case 'batchImportWorlds':
       batchImportWorlds(request, sendResponse);
       return true;
+
     case 'getWorldDetailsForExport':
       getAllWorldDetailsForExport(sendResponse);
       return true;
+
+    case 'COMMIT_BUFFER_ERROR':
+      // ★追加: エラーメッセージを全popupにブロードキャスト
+      chrome.runtime.sendMessage({
+        action: 'COMMIT_BUFFER_ERROR',
+        error: request.error || 'Unknown error'
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          // 受信側がない場合は無視
+        }
+      });
+      sendResponse({ received: true });
+      return true;
+
     default:
       logError('UNKNOWN_MESSAGE', 'Unknown message type', { type: request.type });
       sendResponse({ error: 'Unknown message type' });
@@ -413,7 +472,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // ========================================
-// VRCアクションハンドラー
+// VRC Action Handler
 // ========================================
 
 function handleVRCAction(request, sendResponse) {

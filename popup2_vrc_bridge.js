@@ -1,341 +1,479 @@
-// popup2_vrc_bridge.js v1.2.0
-// ========================================
-// VRC同期ブリッジウィンドウ
-// ========================================
+// popup2_vrc_bridge.js - v1.2.0
 
+// ========================================
+// 翻訳データ
+// ========================================
 const translations = {
   ja: {
-    'bridgeTitle': 'VRChat公式連携ブリッジ',
-    'bridgeHeader': '🔄 VRChat公式同期メニュー',
-    'bridgeDescription': '最初の同期には数分間ほど時間がかかります。',
-    'alertWarningText': '⚠️ 処理中です。このウィンドウを閉じないでください。',
-    'fetchButtonText': 'ワールド取得',
-    'reflectButtonText': 'VRChatへ上書き',
-    'statusWaiting': '実行待ち...',
-    'cancel': 'キャンセル',
-    'actionComplete': '✓ 処理が完了しました',
-    'actionError': '✗ エラーが発生しました',
-    'actionErrorStart': '処理開始に失敗: ',
-    'actionStartFetch': '📥 ワールド取得を開始...',
-    'actionStartReflect': '⬆️ VRChatへの反映を開始...',
-    'closeWindow': 'ウィンドウを閉じる',
-    'processing': '処理中...',
-    'fetchComplete': '✓ 取得完了: {addedCount}件追加 / {movedCount}件移動',
-    'reflectComplete': '✓ 反映完了: {removedCount}件削除 / {movedCount}件移動 / {addedCount}件追加',
-    'errorDetail': 'エラー詳細: ',
-    'autoCloseIn': '{seconds}秒後に自動的に閉じます',
-    'manualClose': '(クリックで手動終了)',
-    'unknownError': '不明なエラーが発生しました',
-    'actionCancelled': '✗ 処理がキャンセルされました',
+    // ヘッダー
+    bridgeHeader: '🔄 VRChat公式同期メニュー',
+    bridgeDescription: '最初の同期には数分間ほど時間がかかります。',
 
-    'phase0_fetchingGroups': 'VRCフォルダ情報を取得中...',
-    'phase0_fetchingVRCStatus': 'VRC側の現在状態を取得中...',
-    'phase0_fetchingFolder': 'フォルダ「{name}」を確認中...',
-    'phase0_calculating': '差分を計算中...',
-    'phase0_calculationComplete': '差分計算完了 (削除:{toRemove} 移動:{toMove} 追加:{toAdd})',
-    'phase0_noChanges': '変更なし',
-    'phase1_removing': '削除中... ({current}/{total})',
-    'phase1_complete': 'Phase 1 完了: {count}/{total}件削除',
-    'phase2_moving': '移動中... ({current}/{total})',
-    'phase2_complete': 'Phase 2 完了: {count}/{total}件移動',
-    'phase3_adding': '追加中... ({current}/{total})',
-    'phase3_complete': 'Phase 3 完了: {count}/{total}件追加',
-    'phase4_updating': 'レコードIDを更新中...',
-    'phase4_complete': '同期完了',
-    'sync_start': '同期処理を開始...',
+    // ボタン
+    fetchButtonText: 'VRChatからデータ取得',
+    reflectButtonText: 'VRChatへ上書き',
 
-    'fetch_phase0_fetchingGroups': 'VRCフォルダ情報を取得中...',
-    'fetch_phase0_groupsComplete': 'VRCフォルダ情報取得完了',
-    'fetch_phase1_fetchingFolder': 'フォルダ「{name}」を取得中...',
-    'fetch_phase1_worldsFetched': '{count}件のワールドを取得',
-    'fetch_phase2_fetchingDetails': 'ワールド詳細情報を取得中...',
-    'fetch_phase2_detailsProgress': 'ワールド詳細取得中... ({current}/{total})',
-    'fetch_phase3_calculating': '差分を計算中...',
-    'fetch_phase4_applying': 'データベースに反映中...',
-    'fetch_phase5_addingNew': '新規ワールドを追加中...',
-    'fetch_phase6_complete': '取得完了',
+    // ステータス
+    statusWaiting: '実行待ち...',
+    statusProcessing: '処理中...',
+    statusComplete: '完了',
+    statusCancelled: 'キャンセルされました',
+    statusError: 'エラーが発生しました',
+
+    // アラート
+    alertWarningText: '⚠️ 処理中です。このウィンドウを閉じないでください。',
+
+    // 進捗メッセージ (Phase 0)
+    phase0_fetchingGroups: 'VRCフォルダ情報を取得中...',
+    phase0_groupsComplete: 'フォルダ情報取得完了',
+    phase0_fetchingVRCStatus: 'VRC側のワールドを取得中...',
+    phase0_fetchingFolder: '{name} を取得中...',
+    phase0_calculating: '差分を計算中...',
+    phase0_calculationComplete: '差分計算完了 (削除: {toRemove}件, 移動: {toMove}件, 追加: {toAdd}件)',
+    phase0_noChanges: '変更はありませんでした',
+
+    // 進捗メッセージ (Phase 1)
+    phase1_removing: '削除中 ({current}/{total})',
+    phase1_complete: '削除完了 ({count}/{total}件)',
+
+    // 進捗メッセージ (Phase 2)
+    phase2_moving: '移動中 ({current}/{total})',
+    phase2_complete: '移動完了 ({count}/{total}件)',
+    phase2_forceWait: 'API反映待機中 ({waitSeconds}秒)...',
+
+    // 進捗メッセージ (Phase 3)
+    phase3_adding: '追加中 ({current}/{total})',
+    phase3_complete: '追加完了 ({count}/{total}件)',
+
+    // 進捗メッセージ (Phase 4)
+    phase4_updating: 'レコードIDを更新中...',
+    phase4_complete: 'レコードID更新完了',
+    phase4_skipped: 'レコードID更新スキップ',
+
+    // 進捗メッセージ (Phase 5)
+    phase5_verifying: '同期結果を検証中 (待機: {waitSeconds}秒, 試行: {retry}回目)...',
+    phase5_retrying: '再試行中 ({current}/{max}) - 追加: {addCount}件, 削除: {removeCount}件, 移動: {moveCount}件',
+    phase5_retrying_remove: '削除漏れを再処理中 ({current}/{total})',
+    phase5_retrying_move: '移動漏れを再処理中 ({current}/{total})',
+    phase5_retrying_add: '追加漏れを再処理中 ({current}/{total})',
+    phase5_complete: '検証完了',
+
+    // 進捗メッセージ (Phase 6)
+    phase6_complete: '同期処理完了',
+
+    // レート制限
+    rateLimitWaiting: 'レート制限 - {waitSeconds}秒待機中...',
+
+    // Fetch関連
+    fetch_phase0_fetchingGroups: 'VRCフォルダ情報を取得中...',
+    fetch_phase0_groupsComplete: 'フォルダ情報取得完了',
+    fetch_phase1_fetchingFolder: '{name} を取得中...',
+    fetch_phase1_worldsFetched: 'ワールド取得完了 ({count}件)',
+    fetch_phase2_fetchingDetails: 'ワールド詳細を取得中...',
+    fetch_phase2_detailsProgress: '詳細取得中 ({current}/{total})',
+    fetch_phase3_calculating: '差分を計算中...',
+    fetch_phase4_applying: '変更を適用中...',
+    fetch_phase5_addingNew: '新規ワールドを追加中...',
+    fetch_phase6_complete: '取得完了',
+
+    // 完了メッセージ
+    fetchComplete: '取得完了: {addedCount}件追加 / 全{totalFolders}フォルダ',
+    reflectComplete: '反映完了: {removedCount}件削除 / {movedCount}件移動 / {addedCount}件追加',
+    reflectCompleteWithUncategorized: '反映完了: {removedCount}件削除 / {movedCount}件移動 / {addedCount}件追加 / {movedToUncategorizedCount}件を未分類へ',
+
+    // エラーメッセージ
+    errorOccurred: 'エラーが発生しました',
+    syncFailed: '同期に失敗しました',
+    fetchFailed: '取得に失敗しました',
+    errorDetails: 'エラー詳細: {error}',
+    partialSuccess: '一部のワールドの処理に失敗しました ({count}件のエラー)',
+    notLoggedIn: 'VRChatにログインしていません。vrchat.comでログインしてから再度お試しください。',
+
+    // 自動クローズ関連
+    autoCloseIn: '{seconds}秒後に自動的に閉じます',
+    manualClose: '(クリックで手動終了)',
+    closeWindow: 'このメッセージをクリックしてウィンドウを閉じてください'
   },
+
   en: {
-    'bridgeTitle': 'VRChat Sync Bridge',
-    'bridgeHeader': '🔄 VRChat Sync Menu',
-    'bridgeDescription': 'The first sync may take several minutes.',
-    'alertWarningText': '⚠️ Processing in progress. Do not close this window.',
-    'fetchButtonText': 'Fetch Worlds',
-    'reflectButtonText': 'Reflect to VRChat',
-    'statusWaiting': 'Waiting for execution...',
-    'cancel': 'Cancel',
-    'actionComplete': '✓ Process completed',
-    'actionError': '✗ An error occurred',
-    'actionErrorStart': 'Failed to start action: ',
-    'actionStartFetch': '📥 Starting world fetch...',
-    'actionStartReflect': '⬆️ Starting reflection to VRChat...',
-    'closeWindow': 'Close Window',
-    'processing': 'Processing...',
-    'fetchComplete': '✓ Fetch complete: {addedCount} added / {movedCount} moved',
-    'reflectComplete': '✓ Reflect complete: {removedCount} removed / {movedCount} moved / {addedCount} added',
-    'errorDetail': 'Error details: ',
-    'autoCloseIn': 'Auto-closing in {seconds} seconds',
-    'manualClose': '(Click to close manually)',
-    'unknownError': 'An unknown error occurred',
-    'actionCancelled': '✗ Process was cancelled',
+    // Header
+    bridgeHeader: '🔄 VRChat Official Sync Menu',
+    bridgeDescription: 'The first sync may take several minutes.',
 
-    'phase0_fetchingGroups': 'Fetching VRC folder information...',
-    'phase0_fetchingVRCStatus': 'Fetching current VRC status...',
-    'phase0_fetchingFolder': 'Checking folder "{name}"...',
-    'phase0_calculating': 'Calculating differences...',
-    'phase0_calculationComplete': 'Calculation complete (Remove:{toRemove} Move:{toMove} Add:{toAdd})',
-    'phase0_noChanges': 'No changes',
-    'phase1_removing': 'Removing... ({current}/{total})',
-    'phase1_complete': 'Phase 1 complete: {count}/{total} removed',
-    'phase2_moving': 'Moving... ({current}/{total})',
-    'phase2_complete': 'Phase 2 complete: {count}/{total} moved',
-    'phase3_adding': 'Adding... ({current}/{total})',
-    'phase3_complete': 'Phase 3 complete: {count}/{total} added',
-    'phase4_updating': 'Updating record IDs...',
-    'phase4_complete': 'Sync completed',
-    'sync_start': 'Starting sync process...',
+    // Buttons
+    fetchButtonText: 'Fetch from VRChat',
+    reflectButtonText: 'Overwrite to VRChat',
 
-    'fetch_phase0_fetchingGroups': 'Fetching VRC folder information...',
-    'fetch_phase0_groupsComplete': 'VRC folder information fetched',
-    'fetch_phase1_fetchingFolder': 'Fetching folder "{name}"...',
-    'fetch_phase1_worldsFetched': '{count} worlds fetched',
-    'fetch_phase2_fetchingDetails': 'Fetching world details...',
-    'fetch_phase2_detailsProgress': 'Fetching details... ({current}/{total})',
-    'fetch_phase3_calculating': 'Calculating differences...',
-    'fetch_phase4_applying': 'Applying to database...',
-    'fetch_phase5_addingNew': 'Adding new worlds...',
-    'fetch_phase6_complete': 'Fetch complete',
+    // Status
+    statusWaiting: 'Waiting...',
+    statusProcessing: 'Processing...',
+    statusComplete: 'Complete',
+    statusCancelled: 'Cancelled',
+    statusError: 'Error occurred',
+
+    // Alert
+    alertWarningText: '⚠️ Processing. Do not close this window.',
+
+    // Progress Messages (Phase 0)
+    phase0_fetchingGroups: 'Fetching VRC folder info...',
+    phase0_groupsComplete: 'Folder info fetched',
+    phase0_fetchingVRCStatus: 'Fetching VRC worlds...',
+    phase0_fetchingFolder: 'Fetching {name}...',
+    phase0_calculating: 'Calculating differences...',
+    phase0_calculationComplete: 'Diff calculated (Remove: {toRemove}, Move: {toMove}, Add: {toAdd})',
+    phase0_noChanges: 'No changes detected',
+
+    // Progress Messages (Phase 1)
+    phase1_removing: 'Removing ({current}/{total})',
+    phase1_complete: 'Remove complete ({count}/{total})',
+
+    // Progress Messages (Phase 2)
+    phase2_moving: 'Moving ({current}/{total})',
+    phase2_complete: 'Move complete ({count}/{total})',
+    phase2_forceWait: 'Waiting for API sync ({waitSeconds}s)...',
+
+    // Progress Messages (Phase 3)
+    phase3_adding: 'Adding ({current}/{total})',
+    phase3_complete: 'Add complete ({count}/{total})',
+
+    // Progress Messages (Phase 4)
+    phase4_updating: 'Updating record IDs...',
+    phase4_complete: 'Record ID update complete',
+    phase4_skipped: 'Record ID update skipped',
+
+    // Progress Messages (Phase 5)
+    phase5_verifying: 'Verifying sync results (wait: {waitSeconds}s, attempt: {retry})...',
+    phase5_retrying: 'Retrying ({current}/{max}) - Add: {addCount}, Remove: {removeCount}, Move: {moveCount}',
+    phase5_retrying_remove: 'Retrying deletions ({current}/{total})',
+    phase5_retrying_move: 'Retrying moves ({current}/{total})',
+    phase5_retrying_add: 'Retrying additions ({current}/{total})',
+    phase5_complete: 'Verification complete',
+
+    // Progress Messages (Phase 6)
+    phase6_complete: 'Sync process complete',
+
+    // Rate Limit
+    rateLimitWaiting: 'Rate limited - waiting {waitSeconds}s...',
+
+    // Fetch related
+    fetch_phase0_fetchingGroups: 'Fetching VRC folder info...',
+    fetch_phase0_groupsComplete: 'Folder info fetched',
+    fetch_phase1_fetchingFolder: 'Fetching {name}...',
+    fetch_phase1_worldsFetched: 'Worlds fetched ({count})',
+    fetch_phase2_fetchingDetails: 'Fetching world details...',
+    fetch_phase2_detailsProgress: 'Details ({current}/{total})',
+    fetch_phase3_calculating: 'Calculating differences...',
+    fetch_phase4_applying: 'Applying changes...',
+    fetch_phase5_addingNew: 'Adding new worlds...',
+    fetch_phase6_complete: 'Fetch complete',
+
+    // Completion Messages
+    fetchComplete: 'Fetch complete: {addedCount} added / {totalFolders} folders total',
+    reflectComplete: 'Reflect complete: {removedCount} removed / {movedCount} moved / {addedCount} added',
+    reflectCompleteWithUncategorized: 'Reflect complete: {removedCount} removed / {movedCount} moved / {addedCount} added / {movedToUncategorizedCount} to uncategorized',
+
+    // Error Messages
+    errorOccurred: 'An error occurred',
+    syncFailed: 'Sync failed',
+    fetchFailed: 'Fetch failed',
+    errorDetails: 'Error: {error}',
+    partialSuccess: 'Some worlds failed ({count} errors)',
+    notLoggedIn: 'Not logged in to VRChat. Please log in at vrchat.com and try again.',
+
+    // Auto-close related
+    autoCloseIn: 'Auto-closing in {seconds} seconds',
+    manualClose: '(Click to close manually)',
+    closeWindow: 'Click this message to close the window'
   }
 };
 
-let currentSettings = { theme: 'dark', language: 'ja' };
-
-function t(key, params = {}) {
-  const lang = currentSettings.language || 'ja';
-  const dict = translations[lang] || translations['ja'];
-  
-  let translatedText = dict[key];
-  
-  if (!translatedText) translatedText = key;
-
-  Object.keys(params).forEach(param => {
-    const placeholder = `{${param}}`;
-    translatedText = translatedText.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), params[param]);
-  });
-
-  return translatedText;
-}
-
-function applyLanguage() {
-  document.title = t('bridgeTitle');
-  const map = {
-    'bridgeHeader': 'bridgeHeader',
-    'bridgeDescription': 'bridgeDescription',
-    'alertWarningText': 'alertWarningText',
-    'fetchButtonText': 'fetchButtonText',
-    'reflectButtonText': 'reflectButtonText',
-    'statusWaiting': 'statusWaiting'
-  };
-  for (const [key, id] of Object.entries(map)) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = t(key);
-  }
-}
-
-function applyTheme() {
-  const body = document.body;
-  if (currentSettings.theme === 'light') {
-    body.classList.remove('dark-theme');
-    body.classList.add('light-theme');
-  } else {
-    body.classList.remove('light-theme');
-    body.classList.add('dark-theme');
-  }
-}
-
-async function loadSettings() {
-  try {
-    const items = await chrome.storage.sync.get(['settings']);
-    if (items && items.settings) {
-      currentSettings = {
-        theme: items.settings.theme || 'dark',
-        language: items.settings.language || 'ja'
-      };
-    }
-  } catch (error) {
-    console.error('Failed to load settings:', error);
-  }
-  applyTheme();
-  applyLanguage();
-}
-
-let FETCH_BUTTON, REFLECT_BUTTON, STATUS_MESSAGE, PROGRESS_FILL, ERROR_MESSAGE, ALERT_MESSAGE;
-let bridgeWindowId = null;
+// ========================================
+// グローバル変数
+// ========================================
+let currentLang = 'ja';
+let currentTheme = 'dark';
+let isProcessing = false;
+let currentWindowId = null;
 let autoCloseTimer = null;
 
-window.addEventListener('beforeunload', () => {
-  if (bridgeWindowId !== null) {
-    chrome.runtime.sendMessage({
-      type: 'CANCEL_VRC_ACTION',
-      windowId: bridgeWindowId
-    });
-  }
+// ========================================
+// 初期化
+// ========================================
+document.addEventListener('DOMContentLoaded', async () => {
+  currentWindowId = chrome.windows.WINDOW_ID_CURRENT;
+
+  await loadSettings();
+  applyTheme();
+  applyLanguage();
+  setupEventListeners();
+
+  console.log('[Bridge] Initialized with windowId:', currentWindowId);
 });
 
-document.addEventListener('DOMContentLoaded', async () => {
-  await loadSettings();
-  FETCH_BUTTON = document.getElementById('fetch-button');
-  REFLECT_BUTTON = document.getElementById('reflect-button');
-  STATUS_MESSAGE = document.getElementById('status-message');
-  PROGRESS_FILL = document.getElementById('progress-fill');
-  ERROR_MESSAGE = document.getElementById('error-message');
-  ALERT_MESSAGE = document.getElementById('alert-message');
+// ========================================
+// 設定読み込み
+// ========================================
+async function loadSettings() {
+  try {
+    const result = await chrome.storage.sync.get('settings');
+    if (result.settings) {
+      currentLang = result.settings.language || 'ja';
+      currentTheme = result.settings.theme || 'dark';
+    }
+  } catch (error) {
+    console.error('[Bridge] Failed to load settings:', error);
+  }
+}
 
-  chrome.windows.getCurrent({ populate: false }, (window) => {
-    bridgeWindowId = window.id;
+// ========================================
+// テーマ適用
+// ========================================
+function applyTheme() {
+  if (currentTheme === 'light') {
+    document.body.classList.add('light-theme');
+  } else {
+    document.body.classList.remove('light-theme');
+  }
+}
+
+// ========================================
+// 言語適用
+// ========================================
+function applyLanguage() {
+  document.documentElement.lang = currentLang;
+
+  // 静的要素の翻訳
+  const elements = {
+    bridgeHeader: document.getElementById('bridgeHeader'),
+    bridgeDescription: document.getElementById('bridgeDescription'),
+    fetchButtonText: document.getElementById('fetchButtonText'),
+    reflectButtonText: document.getElementById('reflectButtonText'),
+    statusWaiting: document.getElementById('statusWaiting'),
+    alertWarningText: document.getElementById('alertWarningText')
+  };
+
+  Object.keys(elements).forEach(key => {
+    if (elements[key] && translations[currentLang][key]) {
+      elements[key].textContent = translations[currentLang][key];
+    }
+  });
+}
+
+// ========================================
+// 翻訳関数
+// ========================================
+function t(key, params = {}) {
+  let text = translations[currentLang][key] || translations['ja'][key] || key;
+
+  // パラメータ置換
+  Object.keys(params).forEach(param => {
+    text = text.replace(new RegExp(`\\{${param}\\}`, 'g'), params[param]);
   });
 
-  const mode = new URLSearchParams(window.location.search).get('mode');
-  if (mode === 'fetch') {
-    FETCH_BUTTON.style.fontWeight = 'bold';
-    FETCH_BUTTON.style.borderWidth = '3px';
-    FETCH_BUTTON.style.transform = 'scale(1.02)';
-  } else if (mode === 'reflect') {
-    REFLECT_BUTTON.style.fontWeight = 'bold';
-    REFLECT_BUTTON.style.borderWidth = '3px';
-    REFLECT_BUTTON.style.transform = 'scale(1.02)';
-  }
+  return text;
+}
 
-  FETCH_BUTTON.addEventListener('click', () => startVrcAction('FETCH'));
-  REFLECT_BUTTON.addEventListener('click', () => startVrcAction('REFLECT'));
+// ========================================
+// イベントリスナー設定
+// ========================================
+function setupEventListeners() {
+  document.getElementById('fetch-button').addEventListener('click', () => {
+    startVRCAction('FETCH');
+  });
 
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.windowId !== bridgeWindowId) return false;
+  document.getElementById('reflect-button').addEventListener('click', () => {
+    startVRCAction('REFLECT');
+  });
 
-    switch (request.action) {
-      case 'VRC_ACTION_PROGRESS':
-        const translatedMessage = t(request.message, request);
-        updateStatus(translatedMessage, false);
-        updateProgress(request.percent || 0);
-        break;
-      case 'VRC_ACTION_COMPLETE':
-        handleComplete(request);
-        break;
-      case 'VRC_ACTION_ERROR':
-        handleError(request.error || t('unknownError'));
-        break;
+  // メッセージリスナー
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.windowId && message.windowId !== currentWindowId) {
+      return;
     }
 
-    sendResponse({ received: true });
-    return true;
+    handleMessage(message);
   });
-});
 
-function startVrcAction(type) {
+  // ウィンドウクローズ時の処理
+  window.addEventListener('beforeunload', () => {
+    if (isProcessing) {
+      chrome.runtime.sendMessage({
+        type: 'CANCEL_VRC_ACTION',
+        windowId: currentWindowId
+      });
+    }
+  });
+}
+
+// ========================================
+// VRCアクション開始
+// ========================================
+async function startVRCAction(actionType) {
+  if (isProcessing) {
+    console.log('[Bridge] Already processing');
+    return;
+  }
+
+  console.log('[Bridge] Starting action:', actionType);
+
+  // 既存のカウントダウンタイマーをクリア
   if (autoCloseTimer) {
     clearTimeout(autoCloseTimer);
     autoCloseTimer = null;
   }
-  
-  setUIBusy(true);
-  const messageKey = type === 'FETCH' ? 'actionStartFetch' : 'actionStartReflect';
-  updateStatus(t(messageKey), false);
-  updateProgress(0);
 
-  chrome.runtime.sendMessage({
-    type: 'START_VRC_ACTION',
-    actionType: type,
-    windowId: bridgeWindowId
-  }, (response) => {
-    if (chrome.runtime.lastError) {
-      console.error('Runtime error:', chrome.runtime.lastError);
-      handleError(t('actionErrorStart') + chrome.runtime.lastError.message);
-      return;
-    }
-    if (response && response.error) {
-      console.error('Action error:', response.error);
-      handleError(response.error);
-    }
-  });
-}
+  isProcessing = true;
+  setButtonsDisabled(true);
+  showAlert(true);
+  setStatus(t('statusProcessing'));
+  setProgress(0);
+  clearError();
 
-function setUIBusy(isBusy) {
-  FETCH_BUTTON.disabled = isBusy;
-  REFLECT_BUTTON.disabled = isBusy;
-  ALERT_MESSAGE.style.display = isBusy ? 'block' : 'none';
-  if (!isBusy) {
-    ERROR_MESSAGE.textContent = '';
-    ERROR_MESSAGE.style.display = 'none';
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'START_VRC_ACTION',
+      actionType: actionType,
+      windowId: currentWindowId
+    });
+
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to start action');
+    }
+
+    console.log('[Bridge] Action started successfully');
+
+  } catch (error) {
+    console.error('[Bridge] Failed to start action:', error);
+    handleError(error.message);
   }
 }
 
-function updateStatus(message, isError, errorDetails = '') {
-  STATUS_MESSAGE.textContent = message;
-  STATUS_MESSAGE.style.color = isError ? 'var(--error)' : 'var(--text-primary)';
-  if (isError && errorDetails) {
-    ERROR_MESSAGE.textContent = t('errorDetail') + errorDetails;
-    ERROR_MESSAGE.style.display = 'block';
-  } else if (isError) {
-    ERROR_MESSAGE.style.display = 'none';
+// ========================================
+// メッセージハンドラー
+// ========================================
+function handleMessage(message) {
+  console.log('[Bridge] Received message:', message.action);
+
+  switch (message.action) {
+    case 'VRC_ACTION_PROGRESS':
+      handleProgress(message);
+      break;
+
+    case 'VRC_ACTION_COMPLETE':
+      handleComplete(message);
+      break;
+
+    case 'VRC_ACTION_ERROR':
+      handleError(message.error);
+      break;
+
+    default:
+      console.log('[Bridge] Unknown action:', message.action);
   }
 }
 
-function updateProgress(percent) {
-  const clamped = Math.max(0, Math.min(100, percent));
-  PROGRESS_FILL.style.width = clamped + '%';
-  PROGRESS_FILL.textContent = Math.round(clamped) + '%';
-  if (clamped === 100) PROGRESS_FILL.classList.add('complete');
-  else PROGRESS_FILL.classList.remove('complete');
+// ========================================
+// 進捗ハンドラー
+// ========================================
+function handleProgress(data) {
+  const { message: msgKey, percent, ...params } = data;
+
+  // 翻訳してステータス更新
+  const translatedMessage = t(msgKey, params);
+  setStatus(translatedMessage);
+  setProgress(percent);
+
+  console.log(`[Bridge] Progress: ${percent}% - ${translatedMessage}`);
 }
 
+// ========================================
+// 完了ハンドラー
+// ========================================
 function handleComplete(result) {
-  setUIBusy(false);
-  updateProgress(100);
+  console.log('[Bridge] Action completed:', result);
 
+  // UI状態の更新
+  isProcessing = false;
+  setButtonsDisabled(false);
+  showAlert(false);
+  setProgress(100);
+
+  // キャンセル、未ログインエラーのチェック
   if (result.cancelled) {
-    updateStatus(t('actionCancelled'), true);
+    setStatus(t('statusCancelled'));
+    // 即座にメインpopupへ通知
+    chrome.runtime.sendMessage({ 
+      type: 'VRC_SYNC_COMPLETED',
+      result: result
+    }).catch(e => console.warn('Failed to send VRC_SYNC_COMPLETED:', e));
     scheduleAutoClose();
     return;
   }
 
-  let message = t('actionComplete');
-  if (result.addedCount !== undefined && result.removedCount === undefined) {
-    message = t('fetchComplete', {
-      addedCount: result.addedCount || 0,
-      movedCount: result.movedCount || 0
-    });
-  } else if (result.removedCount !== undefined) {
-    message = t('reflectComplete', {
-      removedCount: result.removedCount || 0,
-      movedCount: result.movedCount || 0,
-      addedCount: result.addedCount || 0
-    });
+  if (result.notLoggedIn) {
+    setStatus(t('statusError'));
+    showError(t('notLoggedIn'));
+    // 即座にメインpopupへ通知
+    chrome.runtime.sendMessage({ 
+      type: 'VRC_SYNC_COMPLETED',
+      result: result
+    }).catch(e => console.warn('Failed to send VRC_SYNC_COMPLETED:', e));
+    scheduleAutoClose();
+    return;
   }
 
-  updateStatus(message, false);
+  // 成功メッセージの構築
+  let completionMessage = '';
+
+  if (result.addedCount !== undefined) {
+    if (result.totalFolders !== undefined) {
+      completionMessage = t('fetchComplete', {
+        addedCount: result.addedCount,
+        totalFolders: result.totalFolders
+      });
+    } else {
+      if (result.movedToUncategorizedCount && result.movedToUncategorizedCount > 0) {
+        completionMessage = t('reflectCompleteWithUncategorized', {
+          removedCount: result.removedCount || 0,
+          movedCount: result.movedCount || 0,
+          addedCount: result.addedCount || 0,
+          movedToUncategorizedCount: result.movedToUncategorizedCount || 0
+        });
+      } else {
+        completionMessage = t('reflectComplete', {
+          removedCount: result.removedCount || 0,
+          movedCount: result.movedCount || 0,
+          addedCount: result.addedCount || 0
+        });
+      }
+    }
+  }
+
+  setStatus(completionMessage || t('statusComplete'));
+
+  // エラーがある場合は表示
+  if (result.errors && result.errors.length > 0) {
+    const errorCount = result.errors.length;
+    const errorMsg = t('partialSuccess', { count: errorCount });
+    showError(`${errorMsg}\n${result.errors.slice(0, 3).join('\n')}`);
+  }
   
-  chrome.runtime.sendMessage({
+  // 即座にメインpopupへ通知
+  chrome.runtime.sendMessage({ 
     type: 'VRC_SYNC_COMPLETED',
-    actionType: result.actionType || 'UNKNOWN',
-    addedCount: result.addedCount || 0,
-    movedCount: result.movedCount || 0,
-    removedCount: result.removedCount || 0
-  }).catch(err => {
-    console.warn('Failed to notify popup:', err);
-  });
+    result: result
+  }).catch(e => console.warn('Failed to send VRC_SYNC_COMPLETED:', e));
   
   scheduleAutoClose();
 }
 
-function handleError(error) {
-  console.error('Action error:', error);
-  setUIBusy(false);
-  updateProgress(0);
-  updateStatus(t('actionError'), true, error);
-}
-
+// ========================================
+// 自動クローズスケジュール
+// ========================================
 function scheduleAutoClose() {
   let countdown = 5;
+  const ERROR_MESSAGE = document.getElementById('error-message');
+  
   const updateCountdown = () => {
     if (countdown > 0) {
       const msg = t('autoCloseIn', { seconds: countdown }) + ' ' + t('manualClose');
@@ -360,18 +498,123 @@ function scheduleAutoClose() {
   updateCountdown();
 }
 
+// ========================================
+// ウィンドウクローズ
+// ========================================
 function closeWindow() {
   if (autoCloseTimer) {
     clearTimeout(autoCloseTimer);
     autoCloseTimer = null;
   }
+
   try {
     window.close();
   } catch (e) {
     console.warn('Failed to close window:', e);
+    // 閉じられなかった場合のフォールバックUI
+    const ERROR_MESSAGE = document.getElementById('error-message');
     ERROR_MESSAGE.textContent = t('closeWindow');
     ERROR_MESSAGE.style.display = 'block';
     ERROR_MESSAGE.style.color = 'var(--accent-primary)';
     ERROR_MESSAGE.style.cursor = 'pointer';
   }
 }
+
+// ========================================
+// エラーハンドラー
+// ========================================
+function handleError(error) {
+  // 未ログインエラーはWARNレベル、それ以外はERROR
+  if (error === 'VRChatにログインしていません' || (typeof error === 'string' && error.includes('ログインしていません'))) {
+    console.warn('[Bridge] Not logged in to VRChat:', error);
+  } else {
+    console.error('[Bridge] Error occurred:', error);
+  }
+
+  isProcessing = false;
+  setButtonsDisabled(false);
+  showAlert(false);
+  setStatus(t('statusError'));
+
+  // 未ログインエラーの特別処理
+  if (error === 'VRChatにログインしていません' || (typeof error === 'string' && error.includes('ログインしていません'))) {
+    showError(t('notLoggedIn'));
+    scheduleAutoClose();
+    return;
+  }
+
+  const errorMsg = t('errorDetails', { error: error || t('errorOccurred') });
+  showError(errorMsg);
+  scheduleAutoClose();
+}
+
+// ========================================
+// UI更新関数
+// ========================================
+function setStatus(message) {
+  const statusEl = document.getElementById('status-message');
+  if (statusEl) {
+    statusEl.textContent = message;
+  }
+}
+
+function setProgress(percent) {
+  const progressFill = document.getElementById('progress-fill');
+  if (progressFill) {
+    progressFill.style.width = `${percent}%`;
+    progressFill.textContent = `${percent}%`;
+
+    if (percent >= 100) {
+      progressFill.classList.add('complete');
+    } else {
+      progressFill.classList.remove('complete');
+    }
+  }
+}
+
+function showError(message) {
+  const errorEl = document.getElementById('error-message');
+  if (errorEl) {
+    errorEl.textContent = message;
+    errorEl.style.display = 'block';
+  }
+}
+
+function clearError() {
+  const errorEl = document.getElementById('error-message');
+  if (errorEl) {
+    errorEl.textContent = '';
+    errorEl.style.display = 'none';
+  }
+}
+
+function showAlert(show) {
+  const alertEl = document.getElementById('alert-message');
+  if (alertEl) {
+    alertEl.style.display = show ? 'block' : 'none';
+  }
+}
+
+function setButtonsDisabled(disabled) {
+  document.getElementById('fetch-button').disabled = disabled;
+  document.getElementById('reflect-button').disabled = disabled;
+}
+
+// ========================================
+// 設定変更監視
+// ========================================
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  if (namespace === 'sync' && changes.settings) {
+    const newSettings = changes.settings.newValue;
+
+    if (newSettings.language && newSettings.language !== currentLang) {
+      currentLang = newSettings.language;
+      applyLanguage();
+    }
+
+    if (newSettings.theme && newSettings.theme !== currentTheme) {
+      currentTheme = newSettings.theme;
+      applyTheme();
+    }
+  }
+});

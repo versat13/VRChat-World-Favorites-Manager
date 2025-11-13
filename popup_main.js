@@ -1,16 +1,17 @@
-// popup_main.js v1.2.0
+// popup_main.js v1.2.0 (Phase 1-3修正版)
+
 // ========================================
-// VRC同期完了通知のリスナー
+// VRC Sync Completed Notification Listener
 // ========================================
 function setupVRCSyncListener() {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'VRC_SYNC_COMPLETED') {
       logAction('VRC_SYNC_COMPLETED received', message);
-      
+
       loadData().then(() => {
         renderFolderTabs();
         renderCurrentView();
-        
+
         if (message.actionType === 'FETCH' && message.addedCount > 0) {
           showNotification(t('fetchingThumbnails'), 'info');
           setTimeout(() => {
@@ -30,7 +31,7 @@ function setupVRCSyncListener() {
         console.error('Failed to reload after VRC sync:', error);
         showNotification(t('reloadFailed'), 'error');
       });
-      
+
       sendResponse({ received: true });
       return true;
     }
@@ -38,49 +39,268 @@ function setupVRCSyncListener() {
 }
 
 // ========================================
-// レート制限カウントダウンリスナー
+// Rate Limit Countdown Listener
 // ========================================
 function setupRateLimitListener() {
+  let hasShownInitialNotification = false;
+  let isReloadingAfterWait = false;
+  let hasPendingReload = false;
+  let reloadPromise = null;
+  let lastCountdownTime = 0; // ★追加: 最後にメッセージを受信した時刻
+  let timeoutCheckTimer = null; // ★追加: タイムアウト検出タイマー
+
+  // ★追加: ストレージから初期状態を復元
+  async function initializePendingReloadState() {
+    try {
+      const local = await chrome.storage.local.get(['pendingReloadAfterRateLimit']);
+      return local.pendingReloadAfterRateLimit || false;
+    } catch (error) {
+      console.error('Failed to load pending reload state:', error);
+      return false;
+    }
+  }
+
+  // ★追加: 安全なリロード関数（競合防止）
+  async function safeReload() {
+    if (reloadPromise) {
+      console.log('[DEBUG] Reload already in progress, skipping');
+      return reloadPromise;
+    }
+
+    console.log('[DEBUG] Starting safe reload');
+    
+    reloadPromise = (async () => {
+      try {
+        await loadData();
+        renderFolderTabs();
+        renderCurrentView();
+        updateEditingState();
+        
+        // 完了後にストレージフラグをクリア
+        try {
+          await chrome.storage.local.remove(['pendingReloadAfterRateLimit']);
+        } catch (storageError) {
+          console.error('Failed to clear pending reload flag:', storageError);
+        }
+      } catch (error) {
+        console.error('Failed to reload data:', error);
+        showNotification(t('dataLoadFailed'), 'error');
+      }
+    })();
+    
+    reloadPromise.finally(() => {
+      reloadPromise = null;
+    });
+
+    return reloadPromise;
+  }
+
+  // ★追加: タイムアウト検出（3秒以上メッセージが来ない場合）
+  function startTimeoutCheck() {
+    // 既存のタイマーをクリア
+    if (timeoutCheckTimer) {
+      clearInterval(timeoutCheckTimer);
+    }
+    
+    timeoutCheckTimer = setInterval(() => {
+      const now = Date.now();
+      const elapsed = now - lastCountdownTime;
+      
+      // 3秒以上メッセージが来ていない場合は異常と判断
+      if (elapsed > 3000 && lastCountdownTime > 0) {
+        console.warn('[DEBUG] Countdown timeout detected, recovering UI');
+        stopTimeoutCheck();
+        recoverUI();
+      }
+    }, 1000);
+  }
+
+  function stopTimeoutCheck() {
+    if (timeoutCheckTimer) {
+      clearInterval(timeoutCheckTimer);
+      timeoutCheckTimer = null;
+    }
+    lastCountdownTime = 0;
+  }
+
+  // ★追加: UI復旧処理
+  function recoverUI() {
+    const refreshBtn = document.getElementById('refreshBtn');
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.classList.remove('confirm-button');
+      refreshBtn.innerHTML = `🔃<span id="refreshText"> ${t('reload')}</span>`;
+    }
+    
+    // エラー通知
+    showNotification(t('rateLimitTimeout') || 'カウントダウンが中断されました', 'warning');
+  }
+
+  async function initializeCountdownState() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'CHECK_RATE_LIMIT' });
+      const refreshBtn = document.getElementById('refreshBtn');
+      if (!refreshBtn) return;
+
+      if (response && response.needsWait && response.waitSeconds > 0) {
+        // カウントダウン中: UI更新のみ（タイマーは background 側が管理）
+        refreshBtn.disabled = true;
+        refreshBtn.classList.add('confirm-button');
+        
+        // 残り秒数を表示
+        const refreshText = document.getElementById('refreshText');
+        const countdownText = `${t('commitInProgress')} (${response.waitSeconds})`;
+        if (refreshText) {
+          refreshText.textContent = countdownText;
+        } else {
+          refreshBtn.innerHTML = `⏳<span id="refreshText"> ${countdownText}</span>`;
+        }
+        
+        // ストレージにフラグを保存
+        hasPendingReload = true;
+        lastCountdownTime = Date.now();
+        startTimeoutCheck();
+        
+        try {
+          await chrome.storage.local.set({ pendingReloadAfterRateLimit: true });
+        } catch (error) {
+          console.error('Failed to save pending reload flag:', error);
+        }
+        
+      } else if (response && response.needsWait === false) {
+        // 待機終了済み: UI正常化 + 必要なら再読み込み
+        stopTimeoutCheck();
+        refreshBtn.disabled = false;
+        refreshBtn.classList.remove('confirm-button');
+        refreshBtn.innerHTML = `🔃<span id="refreshText"> ${t('reload')}</span>`;
+
+        // ストレージから復元したフラグを確認
+        const storedFlag = await initializePendingReloadState();
+        if (storedFlag && !isReloadingAfterWait) {
+          isReloadingAfterWait = true;
+          hasPendingReload = false;
+          console.log('[DEBUG] Wait finished detected on load, reloading data.');
+          await safeReload();
+          isReloadingAfterWait = false;
+        }
+      }
+    } catch (error) {
+      console.error('Failed to initialize rate limit state:', error);
+      stopTimeoutCheck();
+    }
+  }
+
+  // ★追加: クリーンアップ処理（メモリリーク対策）
+  window.addEventListener('beforeunload', () => {
+    stopTimeoutCheck();
+  });
+
+  // 初期化
+  initializeCountdownState();
+
+  // メッセージリスナー
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'RATE_LIMIT_COUNTDOWN') {
+      // ★修正: background からのメッセージのみを信頼（ローカルタイマーなし）
+      lastCountdownTime = Date.now(); // タイムアウト検出用
+      
       const refreshBtn = document.getElementById('refreshBtn');
-      
       if (refreshBtn) {
-        // 🔥 refreshText が存在しない場合も考慮
         const refreshText = document.getElementById('refreshText');
-        if (refreshText) {
-          refreshText.textContent = `${t('commitInProgress')} (${message.remainingSeconds})`;
-        } else {
-          // span が見つからない場合は直接ボタンのテキストを更新
-          refreshBtn.textContent = `⏳ ${t('commitInProgress')} (${message.remainingSeconds})`;
-        }
+        const countdownText = `${t('commitInProgress')} (${message.remainingSeconds})`;
+
         refreshBtn.disabled = true;
+        refreshBtn.classList.add('confirm-button');
+        if (refreshText) {
+          refreshText.textContent = countdownText;
+        } else {
+          refreshBtn.innerHTML = `⏳<span id="refreshText"> ${countdownText}</span>`;
+        }
       }
-      
-      // 最初の通知時のみメッセージ表示
-      if (message.remainingSeconds >= 60 || message.remainingSeconds === Math.ceil(message.totalWaitSeconds || 60)) {
-        showNotification(
-          t('rateLimitWaiting'),
-          'info'
-        );
+
+      if (!hasShownInitialNotification) {
+        showNotification(t('rateLimitWaiting'), 'warning');
+        hasShownInitialNotification = true;
+        startTimeoutCheck(); // タイムアウト監視開始
       }
-      
+
+      // ストレージフラグを保存
+      hasPendingReload = true;
+      chrome.storage.local.set({ pendingReloadAfterRateLimit: true }).catch(error => {
+        console.error('Failed to save pending reload flag:', error);
+      });
+
       sendResponse({ received: true });
       return true;
     }
-    
-    if (message.action === 'RATE_LIMIT_COMPLETE') {
+
+    if (message.action === 'WAIT_FINISHED') {
+      hasShownInitialNotification = false;
+      stopTimeoutCheck(); // ★追加: タイムアウト監視停止
+
+      logAction('WAIT_FINISHED_RECEIVED', 'Rate limit wait completed, resuming UI');
+
       const refreshBtn = document.getElementById('refreshBtn');
-      
       if (refreshBtn) {
-        const refreshText = document.getElementById('refreshText');
-        if (refreshText) {
-          refreshText.textContent = t('commitInProgress');
-        } else {
-          refreshBtn.textContent = `⏳ ${t('commitInProgress')}`;
-        }
+        refreshBtn.disabled = false;
+        refreshBtn.classList.remove('confirm-button');
+        refreshBtn.innerHTML = `🔃<span id="refreshText"> ${t('reload')}</span>`;
       }
-      
+
+      // WAIT_FINISHED受信時は再読み込みしない（まだバッチ処理中の可能性）
+      hasPendingReload = true;
+
+      sendResponse({ received: true });
+      return true;
+    }
+
+    // COMMIT_BUFFER_COMPLETE を待つ
+    if (message.type === 'COMMIT_BUFFER_COMPLETE') {
+      logAction('COMMIT_BUFFER_COMPLETE_RECEIVED', 'All batch processing finished');
+
+      // hasPendingReload があれば実行
+      if (hasPendingReload && !isReloadingAfterWait) {
+        isReloadingAfterWait = true;
+        hasPendingReload = false;
+        console.log('[DEBUG] Commit complete, reloading data now.');
+        
+        safeReload().finally(() => {
+          isReloadingAfterWait = false;
+        });
+      }
+
+      sendResponse({ received: true });
+      return true;
+    }
+
+    // エラーハンドリング
+    if (message.action === 'COMMIT_BUFFER_ERROR') {
+      logAction('COMMIT_BUFFER_ERROR_RECEIVED', 'Commit failed, cleaning up');
+
+      // フラグクリア
+      hasPendingReload = false;
+      isReloadingAfterWait = false;
+      hasShownInitialNotification = false;
+
+      // タイムアウト監視停止
+      stopTimeoutCheck();
+
+      // UI 正常化
+      const refreshBtn = document.getElementById('refreshBtn');
+      if (refreshBtn) {
+        refreshBtn.disabled = false;
+        refreshBtn.classList.remove('confirm-button');
+        refreshBtn.innerHTML = `🔃<span id="refreshText"> ${t('reload')}</span>`;
+      }
+
+      // ストレージクリーンアップ
+      chrome.storage.local.remove(['pendingReloadAfterRateLimit']).catch(error => {
+        console.error('Failed to clear pending reload flag:', error);
+      });
+
+      // エラー通知
+      showNotification(t('commitFailed') || 'コミット処理に失敗しました', 'error');
+
       sendResponse({ received: true });
       return true;
     }
@@ -88,7 +308,7 @@ function setupRateLimitListener() {
 }
 
 // ========================================
-// 起動
+// Startup
 // ========================================
 document.addEventListener('DOMContentLoaded', async () => {
   await initSettings();
@@ -100,9 +320,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderCurrentView();
   updateEditingState();
   await checkPendingWorldFromContext();
-  
+
   setupVRCSyncListener();
-  setupRateLimitListener(); // 🔥 レート制限リスナー追加
+  setupRateLimitListener();
 });
 
 function detectWindowMode() {
@@ -113,7 +333,7 @@ function detectWindowMode() {
 }
 
 // ========================================
-// データ読み込み
+// Data Loading
 // ========================================
 async function loadData() {
   try {
@@ -124,10 +344,10 @@ async function loadData() {
     folders = foldersResponse.folders || [];
     vrcFolders = foldersResponse.vrcFolders || [];
 
-    logAction('Data loaded', { 
-      worlds: allWorlds.length, 
-      folders: folders.length, 
-      vrcFolders: vrcFolders.length 
+    logAction('Data loaded', {
+      worlds: allWorlds.length,
+      folders: folders.length,
+      vrcFolders: vrcFolders.length
     });
   } catch (error) {
     console.error('Failed to load data:', error);
@@ -136,7 +356,7 @@ async function loadData() {
 }
 
 // ========================================
-// イベントリスナー設定
+// Event Listener Setup
 // ========================================
 function setupEventListeners() {
   document.getElementById('searchInput').addEventListener('input', handleSearch);
@@ -196,15 +416,15 @@ function setupEventListeners() {
       fetchAllDetails();
     }
   });
-  
+
   document.getElementById('syncBtn').addEventListener('click', () => {
     openSyncMenu();
   });
-  
+
   document.getElementById('refreshBtn').addEventListener('click', () => {
     handleRefreshOrConfirm();
   });
-  
+
   document.getElementById('importBtn').addEventListener('click', () => openImportExportModal('import'));
   document.getElementById('exportBtn').addEventListener('click', () => openImportExportModal('export'));
 
@@ -231,7 +451,7 @@ function setupEventListeners() {
 }
 
 // ========================================
-// フィルタリング&ソート中央集権化
+// Filtering & Sorting Centralization
 // ========================================
 function getFilteredAndSortedWorlds() {
   const searchTerm = document.getElementById('searchInput').value.toLowerCase();
@@ -280,7 +500,7 @@ function sortWorlds(worlds) {
 }
 
 // ========================================
-// フォルダタブ描画
+// Folder Tabs Rendering
 // ========================================
 function renderFolderTabs() {
   const container = document.getElementById('folderTabs');
@@ -309,7 +529,7 @@ function renderFolderTabs() {
 
   vrcFolders.forEach(folder => {
     const count = allWorlds.filter(w => w.folderId === folder.id).length;
-    const isOverLimit = count > 150;
+    const isOverLimit = count > 200;
     const isOverSyncLimit = count > 100;
 
     let folderClass = 'vrc-folder';
@@ -444,7 +664,7 @@ function switchFolder(folderId) {
 }
 
 // ========================================
-// ビュー描画
+// View Rendering
 // ========================================
 function renderCurrentView() {
   const filteredWorlds = getFilteredAndSortedWorlds();
@@ -497,7 +717,7 @@ function renderWorlds(worlds) {
         </div>
         <div class="world-thumbnail">
           ${thumbnailUrl ?
-        `<img src="${thumbnailUrl}" alt="${world.name}">` :
+        `<img src="${thumbnailUrl}" alt="${world.name}" draggable="false">` :
         `<div class="no-thumbnail"></div>`
       }
           ${statusBadge}
@@ -591,7 +811,7 @@ function getFolderDisplayName(folderId) {
 }
 
 // ========================================
-// 選択操作
+// Selection Operations
 // ========================================
 function toggleWorldSelection(worldId) {
   if (selectedWorldIds.has(worldId)) {
@@ -650,7 +870,7 @@ function updateSelectionUI() {
 }
 
 // ========================================
-// ページネーション
+// Pagination
 // ========================================
 function updatePagination(page, totalPages, totalItems) {
   document.getElementById('currentPage').textContent = page;
@@ -669,7 +889,7 @@ function changePage(delta) {
   if (newPage >= 1 && newPage <= totalPages) {
     currentPage = newPage;
     renderCurrentView();
-    
+
     const contentArea = document.querySelector('.content');
     if (contentArea) {
       contentArea.scrollTop = 0;
@@ -678,34 +898,34 @@ function changePage(delta) {
 }
 
 // ========================================
-// 重複自動解消
+// Auto Resolve Duplicates
 // ========================================
 async function autoResolveDuplicatesIfNeeded() {
   try {
-    const detectResponse = await chrome.runtime.sendMessage({ 
-      type: 'detectDuplicates' 
+    const detectResponse = await chrome.runtime.sendMessage({
+      type: 'detectDuplicates'
     });
-    
+
     if (!detectResponse.success) {
       logError('AutoResolve failed to detect', detectResponse);
       return;
     }
-    
+
     const duplicates = detectResponse.duplicates || [];
-    
+
     if (duplicates.length === 0) {
       logAction('AutoResolve', 'No duplicates found');
       return;
     }
-    
+
     logAction('AutoResolve', `Found ${duplicates.length} duplicate groups`);
     showNotification(t('resolvingDuplicates'), 'info');
-    
+
     const resolveResponse = await chrome.runtime.sendMessage({
       type: 'resolveDuplicates',
       strategy: duplicateStrategy
     });
-    
+
     if (resolveResponse.success) {
       const count = resolveResponse.resolvedCount || 0;
       if (count > 0) {
@@ -725,7 +945,7 @@ async function autoResolveDuplicatesIfNeeded() {
 }
 
 // ========================================
-// 検索
+// Search
 // ========================================
 function handleSearch() {
   currentPage = 1;
@@ -745,7 +965,7 @@ function clearSearch() {
 }
 
 // ========================================
-// リスト編集中の状態管理
+// List Editing State Management
 // ========================================
 function updateEditingState() {
   const hasChanges = editingBuffer.movedWorlds.length > 0 || editingBuffer.deletedWorlds.length > 0;
@@ -758,22 +978,28 @@ function updateEditingState() {
   const syncBtn = document.getElementById('syncBtn');
   const importBtn = document.getElementById('importBtn');
   const exportBtn = document.getElementById('exportBtn');
-  
+
   if (!banner || !refreshBtn) {
+    return;
+  }
+
+  // ★Phase3修正: コミット処理中の状態保護
+  if (isCommitting) {
+    // コミット中は何も変更しない（background.jsからの制御を優先）
     return;
   }
 
   if (isEditingList) {
     const changeCount = editingBuffer.movedWorlds.length + editingBuffer.deletedWorlds.length;
     banner.style.display = 'flex';
-    
+
     const changeCountEl = banner.querySelector('.change-count');
     if (changeCountEl) {
       changeCountEl.textContent = t('changeCount', { count: changeCount });
     }
-    
+
     refreshBtn.disabled = false;
-    refreshBtn.innerHTML = `✓<span id="refreshText">${t('confirmText')}</span>`;
+    refreshBtn.innerHTML = `✔<span id="refreshText">${t('confirmText')}</span>`;
     refreshBtn.classList.add('confirm-button');
 
     addWorldBtn.disabled = true;
@@ -782,9 +1008,11 @@ function updateEditingState() {
     importBtn.disabled = true;
     exportBtn.disabled = true;
   } else {
+    // 編集中でない = 通常状態に戻す
     banner.style.display = 'none';
     refreshBtn.classList.remove('confirm-button');
     refreshBtn.innerHTML = `🔃<span id="refreshText">${t('refreshText')}</span>`;
+    refreshBtn.disabled = false;
 
     addWorldBtn.disabled = isSyncing;
     fetchDetailsBtn.disabled = isSyncing;
