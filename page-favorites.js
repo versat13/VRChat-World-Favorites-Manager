@@ -1,138 +1,60 @@
-// page-favorites.js v1.2.0 前半
-
-console.log("[VRC Resolver] Favorites Page Script v1.2.1");
+// page-favorites.js v1.2.1 前半
 
 (function () {
   'use strict';
 
+  const { t, initContentScriptSettings, watchSettingsChanges, isExtensionInvalidatedError,
+    DEBUG_LOG } = window.VRCHelpers;
+  const { showFolderSelectModal, showNotification } = window.PageHelpersShared;
+
+  // ==================== 拡張機能コンテキストチェック ====================
+  function checkExtensionContext() {
+    try {
+      // chrome.runtime.idが存在するか確認
+      if (!chrome.runtime?.id) {
+        return false;
+      }
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
   // ==================== 設定チェック ====================
   async function checkExtensionSettings() {
     try {
+      // 拡張機能コンテキストが無効化されていないか確認
+      if (!checkExtensionContext()) {
+        showNotification(t('extInvalidated'), 'warning');
+        // オブザーバーを停止
+        if (observer) observer.disconnect();
+        return false;
+      }
+
       const result = await chrome.storage.sync.get('settings');
       const settings = result.settings || {};
 
       if (settings.enableVrcSiteIntegration === false) {
-        console.log('[Favorites] VRC Site Integration is disabled. Script will not run.');
+        if (DEBUG_LOG) {
+          console.log('[Favorites] VRC Site Integration is disabled. Script will not run.');
+        }
         return false;
       }
 
-      console.log('[Favorites] VRC Site Integration is enabled.');
+      if (DEBUG_LOG) {
+        console.log('[Favorites] VRC Site Integration is enabled.');
+      }
       return true;
     } catch (error) {
+      if (isExtensionInvalidatedError(error)) {
+        showNotification(t('extInvalidated'), 'warning');
+        // オブザーバーを停止
+        if (observer) observer.disconnect();
+        return false;
+      }
       console.error('[Favorites] Failed to check settings:', error);
       return true;
     }
-  }
-
-  // ==================== 翻訳データ ====================
-  const translations = {
-    ja: {
-      extInvalidated: '拡張機能が更新されました。ページを再読み込みしてください',
-      copyLinkBtn: 'リンク',
-      chromeSaveBtn: 'Chrome保存',
-      favoritesBtn: 'Favorites',
-      deleteBtn: '削除',
-      deleteConfirm: '確定',
-      savedSuccess: '✓ {name} を追加しました',
-      removedSuccess: '✓ Chromeから削除しました',
-      linkCopied: 'リンクをコピーしました',
-      alreadySaved: 'ℹ️ このワールドは既に保存されています',
-      alreadyFavorited: 'ℹ️ 既にお気に入り済みです',
-      alreadyFavoritedError: 'ℹ️ 既にお気に入り登録されています (エラー400)',
-      privateWorldError: '✖ プライベートワールド「{name}」はVRCフォルダに保存できません',
-      addFailed: '✖ 追加に失敗しました',
-      deleteFailed: '✖ 削除に失敗しました',
-      worldIdResolving: 'World IDを取得しています...',
-      worldIdResolveFailed: 'World IDを取得できませんでした',
-      worldIdUnresolved: 'World IDが未解決です',
-      notInFavorites: 'お気に入りに登録されていません',
-      deleteSuccess: 'お気に入りから削除しました',
-      vrcDeleteFailed: 'お気に入り削除に失敗しました: {error}',
-      addToFavorites: 'お気に入りに追加しました',
-      addToFavoritesFailed: 'お気に入り追加に失敗しました: {error}',
-      selectVRCFolder: '🗂 VRChatフォルダに追加',
-      selectVRCFolderDesc: '「{name}」を追加するVRChatフォルダを選択してください',
-      selectExtFolder: '🗂 保存先フォルダを選択',
-      selectExtFolderDesc: '「{name}」を保存するフォルダを選択してください',
-      cancel: 'キャンセル',
-      moveFailed: 'フォルダ移動に失敗しました: {error}',
-      moveSuccess: '✓ 「{folder}」フォルダに移動しました',
-      uncategorized: '未分類',
-      alreadyDeleted: 'ℹ️ 既に削除済みです',
-      privateWorldCannotAdd: '🔒 プライベートワールドは追加できません'
-    },
-    en: {
-      extInvalidated: 'Extension context invalidated. Please reload the page.',
-      copyLinkBtn: 'Link',
-      chromeSaveBtn: 'Chrome Save',
-      favoritesBtn: 'Favorites',
-      deleteBtn: 'Delete',
-      deleteConfirm: 'Confirm',
-      savedSuccess: '✓ Added {name}',
-      removedSuccess: '✓ Removed from Chrome',
-      linkCopied: 'Link copied to clipboard',
-      alreadySaved: 'ℹ️ This world is already saved',
-      alreadyFavorited: 'ℹ️ Already favorited',
-      alreadyFavoritedError: 'ℹ️ Already added to favorites (Error 400)',
-      privateWorldError: '✖ Private world "{name}" cannot be saved to VRC folder',
-      addFailed: '✖ Failed to add',
-      deleteFailed: '✖ Failed to delete',
-      worldIdResolving: 'Resolving World ID...',
-      worldIdResolveFailed: 'Failed to resolve World ID',
-      worldIdUnresolved: 'World ID is unresolved',
-      notInFavorites: 'Not in favorites',
-      deleteSuccess: 'Removed from favorites',
-      vrcDeleteFailed: 'Failed to remove from favorites: {error}',
-      addToFavorites: 'Added to favorites',
-      addToFavoritesFailed: 'Failed to add to favorites: {error}',
-      selectVRCFolder: '🗂 Add to VRChat Folder',
-      selectVRCFolderDesc: 'Select VRChat folder to add "{name}"',
-      selectExtFolder: '🗂 Select Folder',
-      selectExtFolderDesc: 'Select folder to save "{name}"',
-      cancel: 'Cancel',
-      moveFailed: 'Failed to move folder: {error}',
-      moveSuccess: '✓ Moved to "{folder}" folder',
-      uncategorized: 'Uncategorized',
-      alreadyDeleted: 'ℹ️ Already deleted',
-      privateWorldCannotAdd: '🔒 Cannot add private world'
-    }
-  };
-
-  let currentLang = 'ja';
-
-  function t(key, params = {}) {
-    let text = translations[currentLang][key] || key;
-    Object.keys(params).forEach(param => {
-      text = text.replace(`{${param}}`, params[param]);
-    });
-    return text;
-  }
-
-  async function initContentScriptSettings() {
-    try {
-      const result = await chrome.storage.sync.get('settings');
-      if (result.settings) {
-        currentLang = result.settings.language || 'ja';
-      }
-      console.log(`[Favorites] Initial language set to: ${currentLang}`);
-    } catch (error) {
-      console.error('[Favorites] Failed to load settings:', error);
-    }
-  }
-
-  function watchSettingsChanges(callback) {
-    chrome.storage.onChanged.addListener((changes, namespace) => {
-      if (namespace === 'sync' && changes.settings) {
-        const newSettings = changes.settings.newValue;
-        if (newSettings.language && newSettings.language !== currentLang) {
-          currentLang = newSettings.language;
-          console.log(`[Favorites] Language changed to: ${currentLang}`);
-          if (typeof callback === 'function') {
-            callback();
-          }
-        }
-      }
-    });
   }
 
   // ==================== 定数 ====================
@@ -189,18 +111,14 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
   let currentUrl = window.location.href;
   let isLoadingFavorites = false;
   let currentDropdownText = '';
-  let pendingFavoriteId = null;
-  let pendingWorldId = null;
 
-  // v1.2.0 新規追加
-  let vrcWorlds = []; // { id, folderId, favoriteRecordId }
-  let worldDetailsCache = {}; // { worldId: { name, authorName, ... } }
+  let vrcWorlds = [];
+  let worldDetailsCache = {};
   const DETAILS_CHUNK_SIZE = 100;
 
   const origFetch = window.fetch;
 
-  // ==================== ユーティリティ関数（v1.2.0） ====================
-
+  // ==================== ユーティリティ関数 ====================
   function hashCode(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
@@ -274,20 +192,28 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
   // ==================== VRCリアルタイム確認 ====================
   async function getVRCFavoriteRecordIdRealtime(worldId) {
     try {
-      console.log('[Favorites] 🔍 Checking realtime favorite status for:', worldId);
+      if (DEBUG_LOG) {
+        console.log('[Favorites] 🔍 Checking realtime favorite status for:', worldId);
+      }
 
       const response = await chrome.runtime.sendMessage({
         type: 'getVRCFavoriteInfo',
         worldId: worldId
       });
 
-      console.log('[Favorites] 🔍 Realtime check response:', response);
+      if (DEBUG_LOG) {
+        console.log('[Favorites] 🔍 Realtime check response:', response);
+      }
 
       if (response.success && response.favorited) {
-        console.log('[Favorites] ✓ Found in VRC favorites:', response.favoriteRecordId);
+        if (DEBUG_LOG) {
+          console.log('[Favorites] ✓ Found in VRC favorites:', response.favoriteRecordId);
+        }
         return response.favoriteRecordId;
       } else {
-        console.log('[Favorites] ✗ Not in VRC favorites');
+        if (DEBUG_LOG) {
+          console.log('[Favorites] ✗ Not in VRC favorites');
+        }
         return null;
       }
     } catch (error) {
@@ -303,12 +229,14 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
     let currentFavoriteId = vrcWorld?.favoriteRecordId || null;
     let isFavorited = !!vrcWorld;
 
-    console.log('[Favorites] 🎯 createFavoritesButton:', {
-      worldId,
-      isFavorited,
-      currentFavoriteId,
-      vrcWorld: vrcWorld ? { id: vrcWorld.id, folderId: vrcWorld.folderId } : null
-    });
+    if (DEBUG_LOG) {
+      console.log('[Favorites] 🎯 createFavoritesButton:', {
+        worldId,
+        isFavorited,
+        currentFavoriteId,
+        vrcWorld: vrcWorld ? { id: vrcWorld.id, folderId: vrcWorld.folderId } : null
+      });
+    }
 
     const btn = createControlButton(
       isFavorited ? '★' : '☆',
@@ -324,11 +252,13 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
           return;
         }
 
-        console.log('[Favorites] 📘 Button clicked:', {
-          worldId,
-          originalIcon,
-          currentCachedState: isFavorited
-        });
+        if (DEBUG_LOG) {
+          console.log('[Favorites] 📘 Button clicked:', {
+            worldId,
+            originalIcon,
+            currentCachedState: isFavorited
+          });
+        }
 
         iconContainer.textContent = '⏳';
         setButtonLoading(btn, true);
@@ -336,15 +266,19 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
 
         const realtimeFavoriteId = await getVRCFavoriteRecordIdRealtime(worldId);
 
-        console.log('[Favorites] 🔍 Realtime result:', {
-          worldId,
-          realtimeFavoriteId,
-          willDelete: !!realtimeFavoriteId,
-          willAdd: !realtimeFavoriteId
-        });
+        if (DEBUG_LOG) {
+          console.log('[Favorites] 🔍 Realtime result:', {
+            worldId,
+            realtimeFavoriteId,
+            willDelete: !!realtimeFavoriteId,
+            willAdd: !realtimeFavoriteId
+          });
+        }
 
         if (realtimeFavoriteId) {
-          console.log('[Favorites] 🗑️ Starting DELETE process');
+          if (DEBUG_LOG) {
+            console.log('[Favorites] 🗑️ Starting DELETE process');
+          }
 
           try {
             const response = await chrome.runtime.sendMessage({
@@ -360,7 +294,9 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
               showNotification(t('deleteSuccess'), 'success');
 
               vrcWorlds = vrcWorlds.filter(w => w.id !== worldId);
-              console.log('[Favorites] Removed from cache:', worldId);
+              if (DEBUG_LOG) {
+                console.log('[Favorites] Removed from cache:', worldId);
+              }
 
               isFavorited = false;
               currentFavoriteId = null;
@@ -368,8 +304,10 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
               updateDeleteButtonState(card, worldId, false);
 
             } else {
-              if (response.error && (response.error.includes('400') || response.error.includes('not found'))) {
-                console.log('[Favorites] ℹ️ Favorite already deleted (400)');
+              if (isAlreadyDeletedError(response.error)) {
+                if (DEBUG_LOG) {
+                  console.log('[Favorites] ℹ️ Favorite already deleted (400)');
+                }
 
                 iconContainer.textContent = '☆';
                 labelSpan.textContent = t('favoritesBtn');
@@ -395,12 +333,16 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
           }
 
         } else {
-          console.log('[Favorites] ➕ Starting ADD process');
+          if (DEBUG_LOG) {
+            console.log('[Favorites] ➕ Starting ADD process');
+          }
 
           try {
             const folderId = await showVRCFolderSelectModal(worldId, card);
 
-            console.log('[Favorites] Adding to favorites:', { worldId, folderId });
+            if (DEBUG_LOG) {
+              console.log('[Favorites] Adding to favorites:', { worldId, folderId });
+            }
 
             const response = await chrome.runtime.sendMessage({
               type: 'addVRCFavorite',
@@ -425,11 +367,15 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
                 favoriteRecordId: response.favoriteRecordId,
                 folderId: folderId
               });
-              console.log('[Favorites] Added to cache:', response.favoriteRecordId);
+              if (DEBUG_LOG) {
+                console.log('[Favorites] Added to cache:', response.favoriteRecordId);
+              }
 
             } else {
               if (response.error && response.error.includes('400')) {
-                console.log('[Favorites] ⚠️ Got 400 error - already favorited');
+                if (DEBUG_LOG) {
+                  console.log('[Favorites] ⚠️ Got 400 error - already favorited');
+                }
                 showNotification(t('alreadyFavoritedError'), 'info');
                 iconContainer.textContent = '★';
                 labelSpan.textContent = t('favoritesBtn');
@@ -437,8 +383,10 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
                 return;
               }
 
-              if (response.error && (response.error.includes('403') || response.error.includes('private'))) {
-                console.log('[Favorites] ⚠️ Got 403 error - private world');
+              if (isPrivateWorldError(response.error)) {
+                if (DEBUG_LOG) {
+                  console.log('[Favorites] ⚠️ Got 403 error - private world');
+                }
                 showNotification(t('privateWorldCannotAdd'), 'warning');
                 iconContainer.textContent = '🔒';
                 setTimeout(() => {
@@ -464,7 +412,9 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
                 iconContainer.textContent = originalIcon;
               }, TIMEOUTS.BUTTON_FEEDBACK);
             } else {
-              console.log('[Favorites] User cancelled folder selection');
+              if (DEBUG_LOG) {
+                console.log('[Favorites] User cancelled folder selection');
+              }
               iconContainer.textContent = originalIcon;
             }
           }
@@ -477,11 +427,13 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
           iconContainer.textContent = isFavorited ? '★' : '☆';
           updateButtonColorScheme(btn, isFavorited ? 'SAVED' : 'PRIMARY');
 
-          console.log('[Favorites] 🎯 Final state:', {
-            worldId,
-            isFavorited,
-            icon: iconContainer.textContent
-          });
+          if (DEBUG_LOG) {
+            console.log('[Favorites] 🎯 Final state:', {
+              worldId,
+              isFavorited,
+              icon: iconContainer.textContent
+            });
+          }
         }, TIMEOUTS.BUTTON_FEEDBACK);
 
       },
@@ -504,7 +456,9 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
     if (!currentFavoriteId && worldId) {
       const vrcWorld = getVRCWorldData(worldId);
       currentFavoriteId = vrcWorld?.favoriteRecordId || null;
-      console.log('[Favorites] createDeleteButton (cached):', { worldId, currentFavoriteId });
+      if (DEBUG_LOG) {
+        console.log('[Favorites] createDeleteButton (cached):', { worldId, currentFavoriteId });
+      }
     }
 
     let confirmTimeout = null;
@@ -528,7 +482,9 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
           }
 
           currentFavoriteId = realtimeFavoriteId;
-          console.log('[Favorites] Delete button realtime check:', { worldId, currentFavoriteId });
+          if (DEBUG_LOG) {
+            console.log('[Favorites] Delete button realtime check:', { worldId, currentFavoriteId });
+          }
         }
 
         if (!currentFavoriteId) {
@@ -559,7 +515,9 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
         btn.disabled = true;
 
         try {
-          console.log('[Favorites] Deleting favorite:', currentFavoriteId);
+          if (DEBUG_LOG) {
+            console.log('[Favorites] Deleting favorite:', currentFavoriteId);
+          }
 
           const response = await chrome.runtime.sendMessage({
             type: 'deleteVRCFavorite',
@@ -574,7 +532,9 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
             showNotification(t('deleteSuccess'), 'success');
 
             vrcWorlds = vrcWorlds.filter(w => w.id !== worldId);
-            console.log('[Favorites] Removed from cache (delete button):', worldId);
+            if (DEBUG_LOG) {
+              console.log('[Favorites] Removed from cache (delete button):', worldId);
+            }
 
             const isFavoritesPage = !!card.querySelector('button[id^="Tooltip-Unfavorite-"]');
             if (isFavoritesPage) {
@@ -588,8 +548,10 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
             }
 
           } else {
-            if (response.error && (response.error.includes('400') || response.error.includes('not found'))) {
-              console.log('[Favorites] ℹ️ Favorite already deleted (400)');
+            if (isAlreadyDeletedError(response.error)) {
+              if (DEBUG_LOG) {
+                console.log('[Favorites] ℹ️ Favorite already deleted (400)');
+              }
 
               iconContainer.textContent = '☆';
               labelSpan.textContent = t('favoritesBtn');
@@ -640,26 +602,33 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
     return btn;
   }
 
+  // page-favorites.js v1.2.1 後半
   // ==================== データロード ====================
   async function loadSavedWorlds() {
     try {
+      if (!checkExtensionContext()) {
+        return;
+      }
       const response = await chrome.runtime.sendMessage({ type: 'getAllWorlds' });
       if (response?.worlds) {
         SAVED_WORLD_IDS = new Set(response.worlds.map(w => w.id));
-        console.log('[Favorites] Loaded saved worlds:', SAVED_WORLD_IDS.size);
+        if (DEBUG_LOG) {
+          console.log('[Favorites] Loaded saved worlds:', SAVED_WORLD_IDS.size);
+        }
       }
-    } catch (e) {
-      if (e.message.includes('Extension context invalidated')) {
-        console.warn('[Favorites] Extension context invalidated');
-        showNotification(t('extInvalidated'), 'info');
-      } else {
-        console.error('[Favorites] Failed to load saved worlds:', e);
+    } catch (error) {
+      if (isExtensionInvalidatedError(error)) {
+        return;
       }
+      console.error('[Favorites] Failed to load saved worlds:', error);
     }
   }
 
   async function loadFolders() {
     try {
+      if (!checkExtensionContext()) {
+        return;
+      }
       const response = await chrome.runtime.sendMessage({ type: 'getFolders' });
       if (response.error) {
         console.error('[Favorites] Error loading folders:', response.error);
@@ -667,12 +636,12 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
       }
       VRC_FOLDERS = response.vrcFolders || [];
       EXT_FOLDERS = response.folders || [];
-      console.log('[Favorites] Loaded folders:', { VRC_FOLDERS, EXT_FOLDERS });
-    } catch (e) {
-      if (e.message.includes('Extension context invalidated')) {
-        console.warn('[Favorites] Extension context invalidated');
-      } else {
-        console.error('[Favorites] Failed to load folders:', e);
+      if (DEBUG_LOG) {
+        console.log('[Favorites] Loaded folders:', { VRC_FOLDERS, EXT_FOLDERS });
+      }
+    } catch (error) {
+      if (!isExtensionInvalidatedError(error)) {
+        console.error('[Favorites] Failed to load folders:', error);
       }
     }
   }
@@ -686,7 +655,9 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
 
       if (!response.ok) {
         if (response.status === 401) {
-          console.log('[Favorites] Not logged in to VRChat (401)');
+          if (DEBUG_LOG) {
+            console.log('[Favorites] Not logged in to VRChat (401)');
+          }
           VRC_FOLDERS = [];
           return;
         }
@@ -703,10 +674,12 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
         type: g.type
       }));
 
-      console.log('[Favorites] Loaded VRC folders from API:', VRC_FOLDERS.length);
-    } catch (e) {
-      if (!e.message.includes('401')) {
-        console.error('[Favorites] Failed to load VRC folders:', e);
+      if (DEBUG_LOG) {
+        console.log('[Favorites] Loaded VRC folders from API:', VRC_FOLDERS.length);
+      }
+    } catch (error) {
+      if (!error.message.includes('401')) {
+        console.error('[Favorites] Failed to load VRC folders:', error);
       }
       VRC_FOLDERS = [];
     }
@@ -714,48 +687,63 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
 
   async function loadVRCWorlds() {
     try {
-      console.log('[Favorites] 📂 Loading VRC worlds from storage...');
+      if (!checkExtensionContext()) {
+        return;
+      }
+
+      if (DEBUG_LOG) {
+        console.log('[Favorites] 📂 Loading VRC worlds from storage...');
+      }
 
       const response = await chrome.runtime.sendMessage({ type: 'getVRCWorlds' });
 
       if (response?.vrcWorlds) {
         vrcWorlds = response.vrcWorlds;
-        console.log('[Favorites] ✅ Loaded vrcWorlds:', vrcWorlds.length);
 
-        const withFavId = vrcWorlds.filter(w => w.favoriteRecordId);
-        const withoutFavId = vrcWorlds.filter(w => !w.favoriteRecordId);
+        if (DEBUG_LOG) {
+          console.log('[Favorites] ✅ Loaded vrcWorlds:', vrcWorlds.length);
 
-        console.log('[Favorites] 📊 Statistics:', {
-          total: vrcWorlds.length,
-          withFavoriteRecordId: withFavId.length,
-          withoutFavoriteRecordId: withoutFavId.length
-        });
+          const withFavId = vrcWorlds.filter(w => w.favoriteRecordId);
+          const withoutFavId = vrcWorlds.filter(w => !w.favoriteRecordId);
 
-        if (withoutFavId.length > 0) {
-          console.warn('[Favorites] ⚠️ Some worlds missing favoriteRecordId');
-          console.table(withoutFavId.slice(0, 5).map(w => ({
-            id: w.id,
-            folderId: w.folderId,
-            hasFavoriteRecordId: !!w.favoriteRecordId
-          })));
-          console.log('[Favorites] 💡 Tip: favoriteRecordId will be populated when favorites are added via this interface');
+          console.log('[Favorites] 📊 Statistics:', {
+            total: vrcWorlds.length,
+            withFavoriteRecordId: withFavId.length,
+            withoutFavoriteRecordId: withoutFavId.length
+          });
+
+          if (withoutFavId.length > 0) {
+            console.warn('[Favorites] ⚠️ Some worlds missing favoriteRecordId');
+            console.table(withoutFavId.slice(0, 5).map(w => ({
+              id: w.id,
+              folderId: w.folderId,
+              hasFavoriteRecordId: !!w.favoriteRecordId
+            })));
+            console.log('[Favorites] 💡 Tip: favoriteRecordId will be populated when favorites are added via this interface');
+          }
         }
 
         if (vrcWorlds.length > 0) {
-          console.log('[Favorites] 📖 Loading world details...');
+          if (DEBUG_LOG) {
+            console.log('[Favorites] 📖 Loading world details...');
+          }
           const worldIds = vrcWorlds.map(w => w.id);
           const detailsMap = await getWorldDetailsBatch(worldIds);
 
-          const detailsCount = Object.keys(detailsMap).length;
-          console.log('[Favorites] ✅ Loaded world details:', detailsCount);
+          if (DEBUG_LOG) {
+            const detailsCount = Object.keys(detailsMap).length;
+            console.log('[Favorites] ✅ Loaded world details:', detailsCount);
+          }
         }
 
       } else {
         console.warn('[Favorites] No VRC worlds in response:', response);
         vrcWorlds = [];
       }
-    } catch (e) {
-      console.error('[Favorites] Failed to load VRC worlds:', e);
+    } catch (error) {
+      if (!isExtensionInvalidatedError(error)) {
+        console.error('[Favorites] Failed to load VRC worlds:', error);
+      }
       vrcWorlds = [];
     }
   }
@@ -782,7 +770,9 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
   }
 
   function resetAndReload() {
-    console.log('[Favorites] Favorites view changed. Resetting processed cards.');
+    if (DEBUG_LOG) {
+      console.log('[Favorites] Favorites view changed. Resetting processed cards.');
+    }
     PROCESSED_CARDS = new WeakSet();
     setTimeout(() => {
       loadFavoritesManually().then(() => checkForWorldCards());
@@ -799,7 +789,11 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
         const clone = response.clone();
         processFavoritesData(await clone.json());
         setTimeout(() => checkForWorldCards(), TIMEOUTS.API_CALL_DELAY);
-      } catch { }
+      } catch (error) {
+        if (DEBUG_LOG) {
+          console.error('[Favorites] Failed to process favorites response:', error);
+        }
+      }
     }
 
     if (url?.includes('/api/1/worlds/wrld_')) {
@@ -810,7 +804,11 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
           RESOLVED_WORLDS.set(worldData.id, worldData);
           updateAllMatchingCards(worldData.id, worldData);
         }
-      } catch { }
+      } catch (error) {
+        if (DEBUG_LOG) {
+          console.error('[Favorites] Failed to process world response:', error);
+        }
+      }
     }
 
     return response;
@@ -831,22 +829,32 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
   async function fetchWorldInfo(worldId) {
     if (RESOLVED_WORLDS.has(worldId)) return;
 
-    console.log(`[Favorites] 🌍 Fetching world info for: ${worldId}`);
+    if (DEBUG_LOG) {
+      console.log(`[Favorites] 🌐 Fetching world info for: ${worldId}`);
+    }
 
     try {
       const res = await origFetch(`${API_BASE}/worlds/${worldId}`, { credentials: 'include' });
 
-      console.log(`[Favorites] 📡 Response status for ${worldId}: ${res.status}`);
+      if (DEBUG_LOG) {
+        console.log(`[Favorites] 📡 Response status for ${worldId}: ${res.status}`);
+      }
 
       let data;
       if (res.ok) {
         data = await res.json();
-        console.log(`[Favorites] ✅ Successfully fetched ${worldId}`);
+        if (DEBUG_LOG) {
+          console.log(`[Favorites] ✅ Successfully fetched ${worldId}`);
+        }
       } else if (res.status === 404) {
-        console.log(`[Favorites] 🗑️ World ${worldId} is deleted (404)`);
+        if (DEBUG_LOG) {
+          console.log(`[Favorites] 🗑️ World ${worldId} is deleted (404)`);
+        }
         data = { id: worldId, name: '[Deleted]', deleted: true };
       } else if (res.status === 403) {
-        console.log(`[Favorites] 🔒 World ${worldId} is private or inaccessible (403)`);
+        if (DEBUG_LOG) {
+          console.log(`[Favorites] 🔒 World ${worldId} is private or inaccessible (403)`);
+        }
         data = { id: worldId, name: '[Private]', private: true };
       } else {
         console.warn(`[Favorites] ⚠️ Unexpected status ${res.status} for ${worldId}`);
@@ -856,8 +864,8 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
       RESOLVED_WORLDS.set(worldId, data);
       updateAllMatchingCards(worldId, data);
 
-    } catch (e) {
-      console.warn(`[Favorites] ⚠️ Network error for ${worldId}:`, e.message);
+    } catch (error) {
+      console.warn(`[Favorites] ⚠️ Network error for ${worldId}:`, error.message);
 
       const fallbackData = {
         id: worldId,
@@ -898,11 +906,13 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
       if (!worldId) return;
     }
 
-    console.log('[Favorites] addControlButtons:', {
-      worldId,
-      isFavoritesPage,
-      vrcWorldsCount: vrcWorlds?.length || 0
-    });
+    if (DEBUG_LOG) {
+      console.log('[Favorites] addControlButtons:', {
+        worldId,
+        isFavoritesPage,
+        vrcWorldsCount: vrcWorlds?.length || 0
+      });
+    }
 
     card.style.position = 'relative';
     card.style.minHeight = '384px';
@@ -1229,7 +1239,6 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
     }
   }
 
-  // page-favorites.js v1.2.0 後半
   // ==================== モーダル ====================
   async function showVRCFolderSelectModal(worldId, card) {
     const worldName = await getWorldName(worldId);
@@ -1330,7 +1339,7 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
       }
     } catch (error) {
       console.error('[Favorites] Failed to add to extension:', error);
-      if (error.message.includes('Extension context invalidated')) {
+      if (isExtensionInvalidatedError(error)) {
         showNotification(t('extInvalidated'), 'info');
       } else {
         showNotification(t('addFailed'), 'error');
@@ -1368,7 +1377,7 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
       }
     } catch (error) {
       console.error('[Favorites] Failed to delete from extension:', error);
-      if (error.message.includes('Extension context invalidated')) {
+      if (isExtensionInvalidatedError(error)) {
         showNotification(t('extInvalidated'), 'info');
       } else {
         showNotification(t('deleteFailed'), 'error');
@@ -1384,246 +1393,7 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
     }
   }
 
-  function showFolderSelectModal(options) {
-    const {
-      title = '🗂 フォルダを選択',
-      description = '対象のフォルダを選択してください:',
-      folders = [],
-      onConfirm = () => { },
-      onCancel = () => { }
-    } = options;
-
-    const overlay = document.createElement('div');
-    overlay.className = 'vrc-resolver-modal';
-    overlay.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.8);
-    z-index: 10001;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  `;
-
-    const modal = document.createElement('div');
-    modal.style.cssText = `
-    background: #1a1d24;
-    border: 2px solid #1fd1ed;
-    border-radius: 12px;
-    padding: 24px;
-    max-width: 400px;
-    width: 90%;
-    box-shadow: 0 8px 32px rgba(31, 209, 237, 0.3);
-  `;
-
-    modal.innerHTML = `
-    <div style="color: #1fd1ed; margin: 0 0 16px 0; font-size: 18px; font-weight: 600;">
-      ${title}
-    </div>
-    <p style="color: #aaa; margin: 0 0 16px 0; font-size: 14px;">
-      ${description}
-    </p>
-    <div class="folder-selection" style="
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      margin: 12px 0;
-      max-height: 300px;
-      overflow-y: auto;
-    "></div>
-    <div style="display: flex; gap: 8px; margin-top: 16px;">
-      <button class="folder-select-cancel" style="
-        flex: 1;
-        padding: 12px;
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid #666;
-        border-radius: 8px;
-        color: #aaa;
-        cursor: pointer;
-        transition: all 0.2s;
-      ">${t('cancel')}</button>
-    </div>
-  `;
-
-    overlay.appendChild(modal);
-    document.body.appendChild(overlay);
-
-    const folderList = modal.querySelector('.folder-selection');
-    folders.forEach((folder) => {
-      const option = createFolderOption(
-        folder.id,
-        folder.name,
-        false,
-        folder.class || ''
-      );
-      folderList.appendChild(option);
-    });
-
-    let selectedOption = null;
-
-    folderList.querySelectorAll('.folder-option').forEach(option => {
-      option.addEventListener('click', () => {
-        folderList.querySelectorAll('.folder-option').forEach(o => {
-          o.classList.remove('selected');
-          const extraClass = o.dataset.extraClass || '';
-          resetFolderOptionStyle(o, extraClass);
-        });
-
-        option.classList.add('selected');
-        selectedOption = option;
-
-        const extraClass = option.dataset.extraClass || '';
-        applySelectedFolderStyle(option, extraClass);
-      });
-
-      option.addEventListener('dblclick', () => {
-        const folderId = option.dataset.folderId;
-        overlay.remove();
-        onConfirm(folderId);
-      });
-    });
-
-    if (title.includes('VRChat')) {
-      folderList.querySelectorAll('.folder-option').forEach(option => {
-        option.addEventListener('click', () => {
-          const folderId = option.dataset.folderId;
-          setTimeout(() => {
-            overlay.remove();
-            onConfirm(folderId);
-          }, 200);
-        });
-      });
-    }
-
-    modal.querySelector('.folder-select-cancel').onclick = () => {
-      overlay.remove();
-      onCancel();
-    };
-
-    overlay.onclick = (e) => {
-      if (e.target === overlay) {
-        overlay.remove();
-        onCancel();
-      }
-    };
-  }
-
-  function resetFolderOptionStyle(option, extraClass) {
-    let baseColor = '#333';
-    let baseBg = '#0f1419';
-
-    if (extraClass === 'none') {
-      baseColor = '#8b7355';
-      baseBg = '#0f1419';
-    } else if (extraClass === 'vrc') {
-      baseColor = '#103b48';
-      baseBg = '#07191d';
-    }
-
-    option.style.borderColor = baseColor;
-    option.style.background = baseBg;
-    option.style.color = extraClass === 'vrc' ? '#888' : '#e0e0e0';
-    option.style.boxShadow = 'none';
-  }
-
-  function applySelectedFolderStyle(option, extraClass) {
-    let selectedBg = '#1a1f2e';
-    let selectedShadow = 'rgba(31, 209, 237, 0.3)';
-    let hoverColor = '#1fd1ed';
-
-    if (extraClass === 'none') {
-      selectedBg = '#2e2a1f';
-      selectedShadow = 'rgba(139, 115, 85, 0.3)';
-    } else if (extraClass === 'vrc') {
-      selectedBg = '#1fd1ed';
-      selectedShadow = 'rgba(31, 209, 237, 0.6)';
-      option.style.color = '#0a0e1a';
-    }
-
-    option.style.borderColor = hoverColor;
-    option.style.background = extraClass === 'vrc' ? '#1fd1ed' : selectedBg;
-    option.style.boxShadow = `0 0 12px ${selectedShadow}`;
-  }
-
-  function createFolderOption(id, name, selected = false, extraClass = '') {
-    const option = document.createElement('div');
-    option.className = `folder-option ${extraClass} ${selected ? 'selected' : ''}`;
-    option.dataset.folderId = id;
-    option.dataset.extraClass = extraClass;
-
-    let baseColor = '#333';
-    let hoverColor = '#1fd1ed';
-    let selectedBg = '#1a1f2e';
-    let selectedShadow = 'rgba(31, 209, 237, 0.3)';
-
-    if (extraClass === 'none') {
-      baseColor = '#8b7355';
-      selectedBg = '#2e2a1f';
-      selectedShadow = 'rgba(139, 115, 85, 0.3)';
-    } else if (extraClass === 'vrc') {
-      baseColor = '#103b48';
-      hoverColor = '#1fd1ed';
-      selectedBg = '#1fd1ed';
-      selectedShadow = 'rgba(31, 209, 237, 0.6)';
-    }
-
-    option.style.cssText = `
-    padding: 10px;
-    background: ${extraClass === 'vrc' ? '#07191d' : '#0f1419'};
-    border: 2px solid ${selected ? hoverColor : baseColor};
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.2s;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: ${extraClass === 'vrc' ? '#888' : '#e0e0e0'};
-  `;
-
-    if (selected) {
-      if (extraClass === 'vrc') {
-        option.style.background = '#1fd1ed';
-        option.style.color = '#0a0e1a';
-      } else {
-        option.style.background = selectedBg;
-      }
-      option.style.boxShadow = `0 0 12px ${selectedShadow}`;
-    }
-
-    option.innerHTML = `
-    <span style="font-size: 18px;">📁</span>
-    <span style="font-size: 12px; flex: 1;">${name}</span>
-  `;
-
-    option.onmouseover = () => {
-      if (!option.classList.contains('selected')) {
-        if (extraClass === 'vrc') {
-          option.style.borderColor = '#1fd1ed';
-          option.style.background = '#1e5c73';
-          option.style.color = '#1fd1ed';
-        } else {
-          option.style.borderColor = hoverColor;
-          option.style.background = selectedBg;
-        }
-      }
-    };
-
-    option.onmouseout = () => {
-      if (!option.classList.contains('selected')) {
-        option.style.borderColor = baseColor;
-        option.style.background = extraClass === 'vrc' ? '#07191d' : '#0f1419';
-        option.style.color = extraClass === 'vrc' ? '#888' : '#e0e0e0';
-        option.style.boxShadow = 'none';
-      }
-    };
-
-    return option;
-  }
-
-  // === Card Update Functions ===
+  // ==================== カード更新 ====================
   function updateCard(card, worldId, data) {
     if (worldId && card.getAttribute('data-scrollkey') !== worldId) {
       card.setAttribute('data-scrollkey', worldId);
@@ -1721,42 +1491,7 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
     });
   }
 
-  // === Notification Display ===
-  function showNotification(message, type = 'info') {
-    const existing = document.getElementById('vrc-resolver-notification');
-    if (existing) existing.remove();
-
-    const notification = document.createElement('div');
-    notification.id = 'vrc-resolver-notification';
-    notification.style.cssText = `
-    position: fixed;
-    top: 80px;
-    right: 20px;
-    z-index: 10002;
-    background: ${type === 'success' ? 'rgba(103, 215, 129, 0.9)' :
-        type === 'error' ? 'rgba(255, 87, 103, 0.9)' :
-          'rgba(31, 209, 237, 0.9)'};
-    color: white;
-    padding: 16px 20px;
-    border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-    font-size: 14px;
-    font-weight: 600;
-    white-space: pre-line;
-    max-width: 300px;
-    animation: slideIn 0.3s ease-out;
-  `;
-
-    notification.textContent = message;
-    document.body.appendChild(notification);
-
-    setTimeout(() => {
-      notification.style.animation = 'slideOut 0.3s ease-in';
-      setTimeout(() => notification.remove(), 300);
-    }, 3000);
-  }
-
-  // === DOM Monitoring ===
+  // ==================== DOM監視 ====================
   const observer = new MutationObserver(() => checkForWorldCards());
 
   function checkForWorldCards() {
@@ -1789,18 +1524,28 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
     try {
       const res = await origFetch(apiUrl, { credentials: 'include' });
       if (res.ok) processFavoritesData(await res.json());
-    } catch (e) {
-      console.error('[Favorites] Error loading favorites:', e);
+    } catch (error) {
+      console.error('[Favorites] Error loading favorites:', error);
     } finally {
       isLoadingFavorites = false;
     }
   }
 
-  // === Initialization ===
+  // ==================== 初期化 ====================
   async function init() {
+    // 拡張機能コンテキストチェック
+    if (!checkExtensionContext()) {
+      if (DEBUG_LOG) {
+        console.log('[Favorites] Extension context invalidated. Stopping script.');
+      }
+      return;
+    }
+
     const isEnabled = await checkExtensionSettings();
     if (!isEnabled) {
-      console.log('[Favorites] Script execution stopped by settings.');
+      if (DEBUG_LOG) {
+        console.log('[Favorites] Script execution stopped by settings.');
+      }
       return;
     }
 
@@ -1809,19 +1554,27 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
       return;
     }
 
-    console.log('[Favorites] Initializing...');
+    if (DEBUG_LOG) {
+      console.log('[Favorites] Initializing...');
+    }
 
-    await initContentScriptSettings();
-    await loadSavedWorlds();
-    await loadFolders();
-    await loadVRCFolders();
-    await loadVRCWorlds();
+    await Promise.all([
+      initContentScriptSettings(),
+      loadSavedWorlds(),
+      loadFolders(),
+      loadVRCFolders(),
+      loadVRCWorlds()
+    ]);
 
-    console.log('[Favorites] ✓ Initialization complete');
-    console.log('[Favorites] VRC worlds loaded:', vrcWorlds?.length || 0);
+    if (DEBUG_LOG) {
+      console.log('[Favorites] ✓ Initialization complete');
+      console.log('[Favorites] VRC worlds loaded:', vrcWorlds?.length || 0);
+    }
 
     watchSettingsChanges(() => {
-      console.log('[Favorites] Language changed, reprocessing cards...');
+      if (DEBUG_LOG) {
+        console.log('[Favorites] Language changed, reprocessing cards...');
+      }
       PROCESSED_CARDS = new WeakSet();
       checkForWorldCards();
     });
@@ -1841,29 +1594,9 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
     }, TIMEOUTS.FAVORITES_LOAD_DELAY);
   }
 
-  // === Animation Styles ===
+  // ==================== アニメーションスタイル ====================
   const style = document.createElement('style');
   style.textContent = `
-  @keyframes slideIn {
-    from {
-      transform: translateX(400px);
-      opacity: 0;
-    }
-    to {
-      transform: translateX(0);
-      opacity: 1;
-    }
-  }
-  @keyframes slideOut {
-    from {
-      transform: translateX(0);
-      opacity: 1;
-    }
-    to {
-      transform: translateX(400px);
-      opacity: 0;
-    }
-  }
   @keyframes spin {
     from {
       transform: rotate(0deg);
@@ -1900,12 +1633,15 @@ console.log("[VRC Resolver] Favorites Page Script v1.2.1");
 `;
   document.head.appendChild(style);
 
-  // === Start ===
+  // ==================== 起動処理 ====================
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
     init();
   }
 
-  console.log('[Favorites] Script ready');
+  if (DEBUG_LOG) {
+    console.log('[Favorites] Script ready');
+  }
+
 })();

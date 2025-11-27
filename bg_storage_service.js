@@ -1,5 +1,7 @@
-// bg_storage_service.js v1.2.0
-console.log('[StorageService] Loaded v1.2.0');
+// bg_storage_service.js v1.2.1
+
+// モジュール読み込みログ（開発時のみ）
+if (INFO_LOG) console.log('[StorageService] Loaded v1.2.1');
 
 // ========================================
 // Rate Limit Management
@@ -90,7 +92,7 @@ class StorageRateLimiter {
           for (let remaining = totalWaitSec; remaining > 0; remaining--) {
             logAction('RATE_LIMIT_COUNTDOWN_TICK', { remaining });
             
-            // ★統一型使用: ProgressMessage.rateLimitCountdown()
+            // 統一型使用: ProgressMessage.rateLimitCountdown()
             progressCallback(
               ProgressMessage.rateLimitCountdown(remaining, totalWaitSec)
             );
@@ -99,7 +101,7 @@ class StorageRateLimiter {
 
           logAction('RATE_LIMIT_COUNTDOWN_FINISHED', 'Sending WAIT_FINISHED message');
           
-          // ★統一型使用: ProgressMessage.rateLimitFinished()
+          // 統一型使用: ProgressMessage.rateLimitFinished()
           progressCallback(
             ProgressMessage.rateLimitFinished()
           );
@@ -152,7 +154,7 @@ async function safeStorageSet(storageType, data, progressCallback = null) {
         for (let remaining = 60; remaining > 0; remaining--) {
           logAction('CHROME_API_RATE_LIMIT_TICK', { remaining });
           
-          // ★統一型使用
+          // 統一型使用
           progressCallback(
             ProgressMessage.rateLimitCountdown(remaining, 60)
           );
@@ -161,7 +163,7 @@ async function safeStorageSet(storageType, data, progressCallback = null) {
         
         logAction('CHROME_API_RATE_LIMIT_FINISHED', 'Sending WAIT_FINISHED message');
         
-        // ★統一型使用
+        // 統一型使用
         progressCallback(
           ProgressMessage.rateLimitFinished()
         );
@@ -202,7 +204,7 @@ async function safeStorageRemove(storageType, keys, progressCallback = null) {
         for (let remaining = 60; remaining > 0; remaining--) {
           logAction('CHROME_API_RATE_LIMIT_TICK', { remaining });
           
-          // ★統一型使用
+          // 統一型使用
           progressCallback(
             ProgressMessage.rateLimitCountdown(remaining, 60)
           );
@@ -211,7 +213,7 @@ async function safeStorageRemove(storageType, keys, progressCallback = null) {
         
         logAction('CHROME_API_RATE_LIMIT_FINISHED', 'Sending WAIT_FINISHED message');
         
-        // ★統一型使用
+        // 統一型使用
         progressCallback(
           ProgressMessage.rateLimitFinished()
         );
@@ -237,6 +239,7 @@ async function initializeStorage() {
   if (!sync.folders) await safeStorageSet('sync', { folders: [] });
   if (!local.vrcWorlds) await safeStorageSet('local', { vrcWorlds: [] });
 
+  // 旧データのマイグレーション（worlds → worlds_0〜worlds_9）
   if (sync.worlds && sync.worlds.length > 0) {
     logAction('MIGRATE_WORLDS_TO_CHUNKED', { count: sync.worlds.length });
     await saveWorldsChunked(sync.worlds);
@@ -247,6 +250,7 @@ async function initializeStorage() {
     await safeStorageSet('sync', { worlds_0: [] });
   }
 
+  // 旧worldDetailsのマイグレーション（worldDetails → worldDetails_0〜worldDetails_19）
   if (local.worldDetails && Object.keys(local.worldDetails).length > 0) {
     logAction('MIGRATE_WORLD_DETAILS', { count: Object.keys(local.worldDetails).length });
     await saveWorldDetailsBatch(local.worldDetails);
@@ -258,10 +262,15 @@ async function initializeStorage() {
   }
 
   // v1.2.0: vrcWorldsの詳細情報をworldDetails_*に統合
+  // 注意: v1.2.2でこのマイグレーション処理は削除予定
   if (!local.migrationCompleted_v120) {
     await migrateVrcWorldsToUnifiedStorage();
   }
 }
+
+// ========================================
+// マイグレーション処理（v1.2.2で削除予定）
+// ========================================
 
 async function migrateVrcWorldsToUnifiedStorage() {
   try {
@@ -314,6 +323,10 @@ async function migrateVrcWorldsToUnifiedStorage() {
     await chrome.storage.local.set({ migrationCompleted_v120: true });
   }
 }
+
+// ========================================
+// Storage Stats
+// ========================================
 
 async function getStorageStats(sendResponse) {
   try {
@@ -486,9 +499,6 @@ async function loadWorldsChunked() {
 
   return worlds;
 }
-
-// ★削除: addWorldToChunkedStorage, removeWorldFromChunkedStorage, updateWorldInChunkedStorage
-// これらは bg_world_data_model.js で直接 saveWorldsChunked/loadWorldsChunked を呼ぶべき
 
 // ========================================
 // Internal Helpers (Data Access)

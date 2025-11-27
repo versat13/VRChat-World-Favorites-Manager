@@ -167,11 +167,32 @@
       cursor: pointer;
       font-size: 11px;
       transition: all 0.2s;
+      position: relative;
     }
 
     .open-window-btn:hover {
       background: var(--accent-primary);
       color: var(--accent-dark);
+    }
+
+    /* 🆕 v1.2.1: ユーザーウォッチバッジ */
+    .user-watch-badge {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      background: #d34b4b;
+      color: white;
+      font-size: 9px;
+      font-weight: bold;
+      padding: 2px 5px;
+      border-radius: 8px;
+      min-width: 16px;
+      text-align: center;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    body.light-theme .user-watch-badge {
+      background: #d47b7b;
     }
 
     /* ==================== リスト編集中バナー ==================== */
@@ -1336,6 +1357,10 @@
       <h1 id="headerTitle">🌎 VRChat World Favorites Manager</h1>
       <div style="display: flex; gap: 8px; align-items: center;">
         <button class="open-window-btn" id="openOptionsBtn">⚙️</button>
+        <button class="open-window-btn" id="openUserFavoritesBtn" style="position: relative;">
+          👤 ウォッチリスト
+          <span class="user-watch-badge" id="userWatchBadge" style="display: none;"></span>
+        </button>
         <button class="open-window-btn" id="openWindowBtn"><span id="openWindowBtnText">🪟 別ウィンドウで表示</span></button>
       </div>
     </div>

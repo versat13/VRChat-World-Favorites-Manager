@@ -19,6 +19,7 @@
       --text-tertiary: #666;
 
       --border-normal: #333;
+      --border-light: #2c3340;
 
       --accent-primary: #1fd1ed;
       --accent-hover: #17b8cc;
@@ -45,6 +46,7 @@
       --text-tertiary: #6b7d6f;
 
       --border-normal: #dfe5e0;
+      --border-light: #e8ede9;
 
       --accent-primary: #7ba886;
       --accent-hover: #6b9474;
@@ -72,13 +74,12 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      padding: 20px;
-      min-height: 100vh;
+      padding: 16px;
       transition: background 0.3s;
     }
 
     .container {
-      max-width: 900px;
+      max-width: 1000px;
       width: 100%;
       background: var(--bg-card);
       border-radius: 12px;
@@ -91,61 +92,79 @@
     /* ヘッダー */
     .header {
       background: var(--bg-secondary);
-      padding: 20px 24px;
+      padding: 12px 20px;
       border-bottom: 1px solid var(--border-normal);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
 
-    .header h1 {
-      font-size: 20px;
-      color: var(--text-primary);
-      margin-bottom: 4px;
+    .header-left h1 {
+      font-size: 18px;
+      color: var(--accent-primary);
       font-weight: 600;
     }
 
-    .header p {
-      font-size: 13px;
-      color: var(--text-secondary);
+    .header-right {
+      font-size: 11px;
+      color: var(--text-tertiary);
     }
 
     /* 2カラムレイアウト */
     .content {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 20px;
-      padding: 20px;
+      gap: 12px;
+      padding: 12px;
     }
 
-    /* セクション */
-    .section {
-      background: var(--bg-secondary);
-      border: 1px solid var(--border-normal);
-      border-radius: 8px;
-      padding: 16px;
+    .left-column, .right-column {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 12px; 
     }
-
+    
+    /* セクションの囲いを削除し、項目リストとして再構成 */
+    .section {
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      padding: 0; 
+      display: flex;
+      flex-direction: column;
+      gap: 4px; 
+    }
+    
+    /* セクションタイトルを中見出し風に(H2的な役割) */
     .section-title {
       font-size: 14px;
       color: var(--accent-primary);
-      margin-bottom: 4px;
       font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid var(--border-normal);
+      text-transform: none;
+      letter-spacing: normal;
+      padding: 10px 0 4px 0; 
+      border-bottom: none;
       display: flex;
       align-items: center;
       gap: 6px;
+      border-top: 1px solid var(--border-light);
+      margin-top: 6px;
     }
 
-    /* 設定項目 */
+    /* 最初のセクションタイトルは上部の境界線を削除 */
+    .left-column > .section-title:first-child,
+    .right-column > .section-title:first-child {
+      border-top: none;
+      margin-top: 0;
+      padding-top: 0;
+    }
+    
+    /* 設定項目 - リスト感の強調とパディング削減 */
     .setting-item {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 12px;
+      padding: 8px 10px;
       background: var(--bg-tertiary);
       border: 1px solid var(--border-normal);
       border-radius: 6px;
@@ -163,25 +182,25 @@
     }
 
     .setting-label {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 500;
       color: var(--text-primary);
-      margin-bottom: 4px;
+      margin-bottom: 1px;
     }
 
     .setting-description {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-secondary);
-      line-height: 1.4;
+      line-height: 1.3;
     }
     
-    /* トグルスイッチ - カラー付き */
+    /* トグルスイッチ - サイズ維持 */
     .toggle-switch {
       position: relative;
-      width: 48px;
-      height: 26px;
+      width: 44px;
+      height: 24px;
       background: var(--toggle-off);
-      border-radius: 13px;
+      border-radius: 12px;
       cursor: pointer;
       transition: background 0.3s;
       flex-shrink: 0;
@@ -197,8 +216,8 @@
       position: absolute;
       top: 3px;
       left: 3px;
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
       background: #fff;
       border-radius: 50%;
       transition: transform 0.3s;
@@ -206,19 +225,19 @@
     }
     
     .toggle-switch.active .toggle-slider {
-      transform: translateX(22px);
+      transform: translateX(20px);
     }
 
     /* セレクト */
     select {
-      padding: 8px 12px;
+      padding: 6px 10px;
       background: var(--bg-card);
       border: 1px solid var(--border-normal);
       border-radius: 6px;
       color: var(--text-primary);
-      font-size: 13px;
+      font-size: 12px;
       cursor: pointer;
-      min-width: 130px;
+      min-width: 120px;
       transition: all 0.2s;
       flex-shrink: 0;
     }
@@ -235,13 +254,13 @@
 
     /* ボタン */
     .btn {
-      padding: 8px 16px;
+      padding: 6px 14px;
       background: var(--bg-card);
       border: 1px solid var(--border-normal);
       border-radius: 6px;
       color: var(--text-primary);
       cursor: pointer;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
       transition: all 0.2s;
       flex-shrink: 0;
@@ -264,21 +283,6 @@
       border-color: var(--danger);
     }
 
-    /* フッター */
-    .footer {
-      padding: 16px 24px;
-      background: var(--bg-secondary);
-      border-top: 1px solid var(--border-normal);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
-    
-    .footer-info {
-      font-size: 12px;
-      color: var(--text-tertiary);
-    }
-    
     /* 通知 */
     .notification {
       position: fixed;
@@ -314,8 +318,10 @@
         grid-template-columns: 1fr;
       }
       
-      .section {
-        min-height: auto; /* 高さを内容に合わせる */
+      .header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
       }
     }
   </style>
@@ -323,102 +329,111 @@
 <body>
   <div class="container">
     <div class="header">
-      <h1 id="pageTitle">⚙️ 設定</h1>
-      <p id="pageDescription">VRChat World Favorites Manager の設定</p>
+      <div class="header-left">
+        <h1 id="pageTitle">⚙️ 設定</h1>
+      </div>
+      <div class="header-right">
+        <div id="footerInfo">Version 1.2.2</div>
+      </div>
     </div>
 
     <div class="content">
-      <!-- 左カラム: 機能設定 -->
+      <!-- 左カラム: 通知設定 (上) -> 機能設定 (下) の順に入れ替え -->
       <div class="left-column">
-        <div class="section">
-          <div class="section-title" id="featuresTitle">⚡ 機能</div>
-          
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label" id="autoResolveDuplicatesLabel">ワールドデータ重複の自動修復</div>
-              <div class="setting-description" id="autoResolveDuplicatesDescription">エラーによるデータ重複を『再表示』ボタンで修復する</div>
-            </div>
-            <div class="toggle-switch active" id="autoResolveDuplicatesToggle">
-              <div class="toggle-slider"></div>
-            </div>
-          </div>
-          
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label" id="vrcSiteIntegrationLabel">VRChat公式サイト内にボタン追加</div>
-              <div class="setting-description" id="vrcSiteIntegrationDescription">公式サイト内のワールド情報に削除ボタンなどを追加する</div>
-            </div>
-            <div class="toggle-switch active" id="vrcSiteIntegrationToggle">
-              <div class="toggle-slider"></div>
-            </div>
-          </div>
+        
+        <!-- 通知設定 (セクション囲い削除) -->
+        <div class="section-title" id="notificationTitle">🔔 通知設定</div>
 
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label" id="contextMenuLabel">コンテキストメニューの追加</div>
-              <div class="setting-description" id="contextMenuDescription">ワールドのURLリンクへの右クリックメニューを追加する</div>
-            </div>
-            <div class="toggle-switch active" id="contextMenuToggle">
-              <div class="toggle-slider"></div>
-            </div>
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="desktopNotificationLabel">デスクトップ通知</div>
+            <div class="setting-description" id="desktopNotificationDescription">新しい更新があった時にChromeの通知を表示</div>
+          </div>
+          <div class="toggle-switch active" id="desktopNotificationToggle">
+            <div class="toggle-slider"></div>
+          </div>
+        </div>
+
+        <!-- 機能設定 (セクション囲い削除) -->
+        <div class="section-title" id="featuresTitle">⚡ 機能</div>
+        
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="autoResolveDuplicatesLabel">ワールドデータ重複の自動修復</div>
+            <div class="setting-description" id="autoResolveDuplicatesDescription">エラーによるデータ重複を再表示ボタンで修復</div>
+          </div>
+          <div class="toggle-switch active" id="autoResolveDuplicatesToggle">
+            <div class="toggle-slider"></div>
+          </div>
+        </div>
+        
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="vrcSiteIntegrationLabel">VRChat公式サイト内にボタン追加</div>
+            <div class="setting-description" id="vrcSiteIntegrationDescription">公式サイト内のワールド情報に削除ボタンなどを追加</div>
+          </div>
+          <div class="toggle-switch active" id="vrcSiteIntegrationToggle">
+            <div class="toggle-slider"></div>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="contextMenuLabel">コンテキストメニューの追加</div>
+            <div class="setting-description" id="contextMenuDescription">ワールドURLのリンクに対応</div>
+          </div>
+          <div class="toggle-switch active" id="contextMenuToggle">
+            <div class="toggle-slider"></div>
           </div>
         </div>
       </div>
 
       <!-- 右カラム: 外観 & データ管理 -->
       <div class="right-column">
-        <!-- 外観 -->
-        <div class="section">
-          <div class="section-title" id="appearanceTitle">🎨 外観</div>
+        <!-- 外観 (セクション囲い削除) -->
+        <div class="section-title" id="appearanceTitle">🎨 外観</div>
 
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label" id="themeLabel">テーマ</div>
-              <div class="setting-description" id="themeDescription">表示テーマを選択</div>
-            </div>
-            <select id="themeSelect">
-              <option value="dark" id="themeDark">ダーク</option>
-              <option value="light" id="themeLight">ライト</option>
-            </select>
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="themeLabel">テーマ</div>
+            <div class="setting-description" id="themeDescription">表示テーマを選択</div>
           </div>
-
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label" id="languageLabel">言語 / Language</div>
-              <div class="setting-description" id="languageDescription">表示言語を選択</div>
-            </div>
-            <select id="languageSelect">
-              <option value="ja">日本語</option>
-              <option value="en">English</option>
-            </select>
-          </div>
+          <select id="themeSelect">
+            <option value="dark" id="themeDark">ダーク</option>
+            <option value="light" id="themeLight">ライト</option>
+          </select>
         </div>
 
-        <!-- データ管理 -->
-        <div class="section">
-          <div class="section-title" id="dataTitle">💾 データ管理</div>
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="languageLabel">言語 / Language</div>
+            <div class="setting-description" id="languageDescription">表示言語を選択</div>
+          </div>
+          <select id="languageSelect">
+            <option value="ja">日本語</option>
+            <option value="en">English</option>
+          </select>
+        </div>
 
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label" id="resetLabel">設定リセット</div>
-              <div class="setting-description" id="resetDescription">オプション内の設定をデフォルトに戻す</div>
-            </div>
-            <button class="btn" id="resetBtn"></button>
+        <!-- データ管理 (セクション囲い削除) -->
+        <div class="section-title" id="dataTitle">💾 データ管理</div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="resetLabel">設定リセット</div>
+            <div class="setting-description" id="resetDescription">オプション内の設定をデフォルトに戻す</div>
           </div>
-          
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label" id="resetDataLabel">保存データを全削除</div>
-              <div class="setting-description" id="resetDataDescription">保存されているすべてのワールドおよびフォルダを削除する</div>
-            </div>
-            <button class="btn btn-danger" id="resetDataBtn"></button>
+          <button class="btn" id="resetBtn">実行</button>
+        </div>
+        
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="resetDataLabel">保存データを全削除</div>
+            <div class="setting-description" id="resetDataDescription">保存されているすべてのワールドおよびフォルダを削除</div>
           </div>
+          <button class="btn btn-danger" id="resetDataBtn">全削除</button>
         </div>
       </div>
-    </div>
-
-    <div class="footer">
-      <div class="footer-info" id="footerInfo">Version 1.2.0</div>
     </div>
   </div>
 

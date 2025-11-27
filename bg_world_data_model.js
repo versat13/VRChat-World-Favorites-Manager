@@ -1,5 +1,7 @@
-// bg_world_data_model.js v1.2.3 (bg_storage_service.js との役割分担明確化版)
-console.log('[WorldDataModel] Loaded v1.2.3');
+// bg_world_data_model.js v1.2.1
+
+// モジュール読み込みログ（開発時のみ）
+if (INFO_LOG) console.log('[WorldDataModel] Loaded v1.2.1');
 
 // ========================================
 // Internal Helpers (For Export)
@@ -73,6 +75,7 @@ async function addWorldToFolder(world) {
     const folderId = world.folderId;
 
     if (folderId.startsWith('worlds')) {
+      // VRCフォルダへの追加
       if (world.releaseStatus === 'private' || world.releaseStatus === 'deleted') {
         return createPrivateWorldError(world.name);
       }
@@ -104,6 +107,7 @@ async function addWorldToFolder(world) {
       });
 
     } else {
+      // カスタムフォルダへの追加
       const syncWorlds = await loadWorldsChunked();
 
       if (syncWorlds.length >= SYNC_WORLD_LIMIT) {
@@ -159,7 +163,7 @@ async function removeWorldFromFolder(worldId, folderId) {
       const vrcWorlds = (local.vrcWorlds || []).filter(w => w.id !== worldId);
       await chrome.storage.local.set({ vrcWorlds });
     } else {
-      // ★修正: bg_storage_service.js の関数を直接使用
+      // カスタムフォルダから削除
       const syncWorlds = await loadWorldsChunked();
       const filtered = syncWorlds.filter(w => w.id !== worldId);
       await saveWorldsChunked(filtered);
@@ -416,6 +420,7 @@ async function processUnifiedBatch(batch, progressCallback = null) {
     let syncModified = false;
     let vrcModified = false;
 
+    // 事前容量チェック
     const moveToSync = batch.filter(c => c.type === 'move' && c.fromFolder.startsWith('worlds') && !c.toFolder.startsWith('worlds'));
     const moveToVRC = batch.filter(c => c.type === 'move' && !c.fromFolder.startsWith('worlds') && c.toFolder.startsWith('worlds'));
     const deleteFromSync = batch.filter(c => c.type === 'delete' && !c.folderId.startsWith('worlds'));
@@ -434,6 +439,7 @@ async function processUnifiedBatch(batch, progressCallback = null) {
       };
     }
     
+    // VRCフォルダ容量チェック
     const vrcFolderCounts = {};
     vrcWorlds.forEach(w => {
       vrcFolderCounts[w.folderId] = (vrcFolderCounts[w.folderId] || 0) + 1;
@@ -461,6 +467,7 @@ async function processUnifiedBatch(batch, progressCallback = null) {
       }
     }
 
+    // バッチ処理
     for (const change of batch) {
       try {
         if (change.type === 'delete') {
@@ -493,6 +500,7 @@ async function processUnifiedBatch(batch, progressCallback = null) {
           const toIsVRC = change.toFolder.startsWith('worlds');
 
           if (fromIsVRC && toIsVRC) {
+            // VRC → VRC
             const index = vrcWorlds.findIndex(w => w.id === change.worldId);
             if (index !== -1) {
               vrcWorlds[index].folderId = change.toFolder;
@@ -504,6 +512,7 @@ async function processUnifiedBatch(batch, progressCallback = null) {
             }
 
           } else if (fromIsVRC && !toIsVRC) {
+            // VRC → Custom
             const vrcIndex = vrcWorlds.findIndex(w => w.id === change.worldId);
             if (vrcIndex !== -1) {
               vrcWorlds.splice(vrcIndex, 1);
@@ -518,6 +527,7 @@ async function processUnifiedBatch(batch, progressCallback = null) {
             }
 
           } else if (!fromIsVRC && toIsVRC) {
+            // Custom → VRC
             const syncIndex = syncWorlds.findIndex(w => w.id === change.worldId);
             if (syncIndex !== -1) {
               syncWorlds.splice(syncIndex, 1);
@@ -542,6 +552,7 @@ async function processUnifiedBatch(batch, progressCallback = null) {
             }
 
           } else {
+            // Custom → Custom
             const index = syncWorlds.findIndex(w => w.id === change.worldId);
             if (index !== -1) {
               syncWorlds[index].folderId = change.toFolder;
@@ -565,6 +576,7 @@ async function processUnifiedBatch(batch, progressCallback = null) {
       }
     }
 
+    // 書き込み回数計算
     let totalWrites = 0;
     
     if (syncModified) {
@@ -586,6 +598,7 @@ async function processUnifiedBatch(batch, progressCallback = null) {
 
     logAction('BATCH_TOTAL_WRITES_CALCULATED', { totalWrites });
 
+    // ストレージ書き込み
     try {
       if (syncModified) {
         await saveWorldsChunked(syncWorlds, progressCallback);
@@ -637,7 +650,7 @@ async function commitBuffer(request, sendResponse, progressCallback = null) {
     await batchUpdateWorlds(request.changes, (response) => {
       sendResponse(response);
       
-      // ★統一型使用: ProgressMessage.commitComplete()
+      // 統一型使用: ProgressMessage.commitComplete()
       if (progressCallback) {
         try {
           progressCallback(
@@ -666,7 +679,7 @@ async function commitBuffer(request, sendResponse, progressCallback = null) {
       deletedCount: 0
     });
     
-    // ★統一型使用: ProgressMessage.commitError()
+    // 統一型使用: ProgressMessage.commitError()
     if (progressCallback) {
       try {
         progressCallback(
@@ -781,7 +794,7 @@ async function renameFolder(folderId, newName, sendResponse) {
 }
 
 // ========================================
-// Other
+// Duplicate Detection & Resolution
 // ========================================
 
 async function detectDuplicates(sendResponse) {
@@ -834,6 +847,7 @@ async function resolveDuplicates(strategy, sendResponse) {
 
         switch (strategy) {
           case 'keep_vrc':
+            // VRCフォルダを優先
             if (world.folderId.startsWith('worlds')) {
               keepWorld = world;
               deleteWorld = existing;
@@ -847,6 +861,7 @@ async function resolveDuplicates(strategy, sendResponse) {
             break;
 
           case 'keep_newest':
+            // favoriteRecordIdがあるものを優先
             if (world.favoriteRecordId && !existing.favoriteRecordId) {
               keepWorld = world;
               deleteWorld = existing;
@@ -858,6 +873,7 @@ async function resolveDuplicates(strategy, sendResponse) {
 
           case 'keep_first':
           default:
+            // 最初に見つかったものを保持
             keepWorld = existing;
             deleteWorld = world;
             break;

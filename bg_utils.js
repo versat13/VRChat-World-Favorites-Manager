@@ -1,5 +1,7 @@
-// bg_utils.js v1.2.2 (ログ最適化版)
-// DEBUG_LOGはbg_constants.jsで定義
+// bg_utils.js v1.2.1
+
+// モジュール読み込みログ（開発時のみ）
+if (INFO_LOG) console.log('[Utils] Loaded v1.2.1');
 
 // ========================================
 // ヘルパー関数
@@ -67,15 +69,16 @@ function mergeEditBuffers(baseBuffer, pendingBuffer) {
 }
 
 // ========================================
-// デバッグログ（最適化版）
+// デバッグログ
 // ========================================
 
 function logAction(action, data) {
-  if (!DEBUG_LOG) return;
+  // INFO以上のログレベルでのみ出力
+  if (!INFO_LOG) return;
   
   const timestamp = new Date().toISOString();
   
-  // ★最適化: オブジェクトの場合のみ stringify
+  // オブジェクトの場合のみ stringify
   let formattedData = data;
   if (typeof data === 'object' && data !== null) {
     try {
@@ -90,18 +93,22 @@ function logAction(action, data) {
 }
 
 function logError(action, error, data = null) {
-  if (!DEBUG_LOG) return;
+  // ERROR以上のログレベルでのみ出力
+  if (!ERROR_LOG) return;
   
   const timestamp = new Date().toISOString();
   
+  // 制限系エラーは警告レベル
   if (action.includes('LIMIT') || action.includes('RESTRICTED')) {
-    console.warn(`[${timestamp}] [WARN] ${action}:`, error);
+    if (WARN_LOG) {
+      console.warn(`[${timestamp}] [WARN] ${action}:`, error);
+    }
   } else {
     console.error(`[${timestamp}] [ERROR] ${action}:`, error);
   }
   
-  if (data) {
-    // ★最適化: オブジェクトの場合のみ stringify
+  if (data && INFO_LOG) {
+    // オブジェクトの場合のみ stringify
     let formattedData = data;
     if (typeof data === 'object' && data !== null) {
       try {
@@ -114,17 +121,18 @@ function logError(action, error, data = null) {
   }
   
   // UNKNOWN_MESSAGE の場合はスタックトレースも出力
-  if (action === 'UNKNOWN_MESSAGE') {
+  if (action === 'UNKNOWN_MESSAGE' && DEBUG_LOG) {
     console.trace('Stack trace for unknown message');
   }
 }
 
 function logBatch(phase, data) {
-  if (!DEBUG_LOG) return;
+  // INFO以上のログレベルでのみ出力
+  if (!INFO_LOG) return;
   
   const timestamp = new Date().toISOString();
   
-  // ★最適化: オブジェクトの場合のみ stringify（ただし BATCH ログは常にオブジェクト想定）
+  // オブジェクトの場合のみ stringify
   let formattedData = data;
   if (typeof data === 'object' && data !== null) {
     try {

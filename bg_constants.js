@@ -1,5 +1,23 @@
-// bg_constants.js v1.2.0
-console.log('[Constants] Loaded');
+// bg_constants.js v1.2.1
+
+// ========================================
+// ログレベル設定
+// ========================================
+// 本番環境では 'ERROR' に、開発時は 'DEBUG' に設定してください
+// 'NONE': ログ出力なし
+// 'ERROR': エラーのみ
+// 'WARN': 警告以上
+// 'INFO': 情報以上
+// 'DEBUG': すべてのログ
+const LOG_LEVEL = 'ERROR'; // 本番リリース時は 'ERROR' に変更してください
+
+const DEBUG_LOG = LOG_LEVEL === 'DEBUG';
+const INFO_LOG = ['DEBUG', 'INFO'].includes(LOG_LEVEL);
+const WARN_LOG = ['DEBUG', 'INFO', 'WARN'].includes(LOG_LEVEL);
+const ERROR_LOG = LOG_LEVEL !== 'NONE';
+
+// モジュール読み込みログ（開発時のみ）
+if (INFO_LOG) console.log('[Constants] Loaded v1.2.1');
 
 // ========================================
 // ストレージ制限
@@ -48,12 +66,22 @@ const UI_DEFAULTS = {
 };
 
 // ========================================
-// デバッグ設定
+// 【新規追加 v1.2.1】通知設定
 // ========================================
-const DEBUG_LOG = true;
+const NOTIFICATION_SETTINGS = {
+  CHECK_INTERVALS: {
+    ON_STARTUP: 0,           // 起動時のみ
+    ONE_HOUR: 3600000,       // 1時間（ミリ秒）
+    THREE_HOURS: 10800000,   // 3時間（ミリ秒）
+    TWELVE_HOURS: 43200000   // 12時間（ミリ秒）
+  },
+  STARTUP_DELAY: 5000,       // 起動後5秒待機
+  TODAY_HOURS: 24,           // 「今日」判定（24時間以内）
+  BADGE_MAX: 99              // バッジ最大表示数
+};
 
 // ========================================
-// Progress Message Types (統一型定義) - v1.2.2
+// Progress Message Types（統一型定義）
 // ========================================
 
 const ProgressMessageType = {

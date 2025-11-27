@@ -1,5 +1,7 @@
-// bg_import_export_service.js v1.2.0
-console.log('[ImportExportService] Loaded');
+// bg_import_export_service.js v1.2.1
+
+// モジュール読み込みログ（開発時のみ）
+if (INFO_LOG) console.log('[ImportExportService] Loaded v1.2.1');
 
 // ========================================
 // インポート
@@ -16,7 +18,7 @@ async function batchImportWorlds(request, sendResponse) {
   let isFailure = false;
 
   try {
-    // 🔥 1. 完全バックアップ時の事前検証
+    // 1. 完全バックアップ時の事前検証
     if (isFullBackup) {
       logAction('FULL_BACKUP_VALIDATION_START', 'Validating backup data');
 
@@ -46,7 +48,7 @@ async function batchImportWorlds(request, sendResponse) {
 
       logAction('FULL_BACKUP_VALIDATION_SUCCESS', 'Backup data is valid');
 
-      // 🔥 2. 既存データのバックアップ作成(ロールバック用)
+      // 2. 既存データのバックアップ作成（ロールバック用）
       logAction('FULL_BACKUP_CREATE_ROLLBACK', 'Creating rollback backup');
 
       const rollbackData = {
@@ -69,11 +71,11 @@ async function batchImportWorlds(request, sendResponse) {
         vrcWorldsCount: (rollbackData.local.vrcWorlds || []).length
       });
 
-      // 🔥 3. ストレージクリア
+      // 3. ストレージクリア
       try {
         logAction('FULL_BACKUP_CLEAR_STORAGE', 'Starting full overwrite');
 
-        // Local Storage のクリア
+        // Local Storageのクリア
         const keysToRemoveLocal = Object.keys(allLocalKeys).filter(key =>
           key.startsWith('worldDetails_') || key === 'vrcWorlds'
         );
@@ -81,7 +83,7 @@ async function batchImportWorlds(request, sendResponse) {
           await chrome.storage.local.remove(keysToRemoveLocal);
         }
 
-        // Sync Storage のクリア
+        // Sync Storageのクリア
         await chrome.storage.sync.remove(['folders', 'vrcFolderData']);
 
         // 全てのチャンクをクリア
@@ -99,7 +101,7 @@ async function batchImportWorlds(request, sendResponse) {
         throw new Error('Failed to clear storage: ' + clearError.message);
       }
 
-      // 🔥 4. 新データのインポート(try-catchでロールバック可能に)
+      // 4. 新データのインポート（try-catchでロールバック可能に）
       try {
         // フォルダ・VRCフォルダデータを復元
         if (request.folders) {
@@ -131,7 +133,7 @@ async function batchImportWorlds(request, sendResponse) {
       }
     }
 
-    // 🔥 5. 既存ワールドマップ作成(完全バックアップ時はクリア後なので空)
+    // 5. 既存ワールドマップ作成（完全バックアップ時はクリア後なので空）
     const allExistingWorlds = await getAllWorldsInternal();
     const existingWorldMap = new Map(allExistingWorlds.map(w => [w.id, w]));
 
@@ -150,7 +152,7 @@ async function batchImportWorlds(request, sendResponse) {
       const folderId = isFullBackup ? (world.folderId || 'none') : (targetFolder || 'none');
       const existing = existingWorldMap.get(world.id);
 
-      // 完全バックアップ時は既存チェックをスキップ(クリア済みのため)
+      // 完全バックアップ時は既存チェックをスキップ（クリア済みのため）
       if (isFullBackup) {
         // 既存データなし → すべて新規追加
         const worldToAdd = {
@@ -175,7 +177,7 @@ async function batchImportWorlds(request, sendResponse) {
         // VRCフォルダとカスタムフォルダで分類
         if (folderId.startsWith('worlds')) {
           worldsToAddVRC.push(worldToAdd);
-          // ★追加: VRCフォルダの詳細情報も保存対象に
+          // VRCフォルダの詳細情報も保存対象に
           detailsToSave[world.id] = {
             name: worldToAdd.name,
             authorName: worldToAdd.authorName,
@@ -236,7 +238,7 @@ async function batchImportWorlds(request, sendResponse) {
       // VRCフォルダとカスタムフォルダで分類
       if (folderId.startsWith('worlds')) {
         worldsToAddVRC.push(worldToAdd);
-        // ★追加: VRCフォルダの詳細情報も保存対象に
+        // VRCフォルダの詳細情報も保存対象に
         detailsToSave[world.id] = {
           name: worldToAdd.name,
           authorName: worldToAdd.authorName,
@@ -261,7 +263,7 @@ async function batchImportWorlds(request, sendResponse) {
       skipped: skippedCount
     });
 
-    // 7. 移動処理(既存のバッチ処理を流用)
+    // 7. 移動処理（既存のバッチ処理を流用）
     if (worldsToMove.length > 0) {
       const moveResult = await new Promise((resolve) => {
         batchUpdateWorlds({ movedWorlds: worldsToMove, deletedWorlds: [] }, resolve);
@@ -324,7 +326,7 @@ async function batchImportWorlds(request, sendResponse) {
         folderCounts[world.folderId] = count + 1;
       }
 
-      // ★修正: vrcWorldsには最小限のデータのみ保存
+      // vrcWorldsには最小限のデータのみ保存
       const minimalWorlds = validWorlds.map(w => ({
         id: w.id,
         folderId: w.folderId,
@@ -338,7 +340,7 @@ async function batchImportWorlds(request, sendResponse) {
       logAction('IMPORT_VRC_COMPLETE', { count: validWorlds.length });
     }
 
-    // ★追加: すべての詳細情報を一括保存（VRC + Custom）
+    // すべての詳細情報を一括保存（VRC + Custom）
     if (Object.keys(detailsToSave).length > 0) {
       logAction('IMPORT_SAVING_ALL_DETAILS', { count: Object.keys(detailsToSave).length });
       await saveWorldDetailsBatch(detailsToSave);
@@ -391,7 +393,7 @@ async function getAllWorldDetailsForExport(sendResponse) {
     // 1. 詳細情報をすべて取得（worldDetails_*から統一的に取得）
     const worldDetailsMap = await getAllWorldDetailsInternal();
 
-    // 2. syncWorlds に詳細情報をマージ
+    // 2. syncWorldsに詳細情報をマージ
     const exportedWorlds = syncWorlds.map(sw => {
       const details = worldDetailsMap[sw.id] || {};
       return {
@@ -405,7 +407,7 @@ async function getAllWorldDetailsForExport(sendResponse) {
       };
     });
 
-    // 3. VRC Worlds にも詳細情報をマージ
+    // 3. VRC Worldsにも詳細情報をマージ
     const exportedVRCWorlds = localVRCWorlds.map(vw => {
       const details = worldDetailsMap[vw.id] || {};
       return {
@@ -424,7 +426,7 @@ async function getAllWorldDetailsForExport(sendResponse) {
     // 4. 完全なバックアップデータを作成
     const exportData = {
       meta: {
-        version: '1.2.0',
+        version: '1.2.1',
         type: 'FULL_BACKUP',
         timestamp: new Date().toISOString()
       },

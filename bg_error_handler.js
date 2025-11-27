@@ -1,5 +1,7 @@
-// bg_error_handler.js v1.2.0
-console.log('[ErrorHandler] Loaded');
+// bg_error_handler.js v1.2.1
+
+// モジュール読み込みログ（開発時のみ）
+if (INFO_LOG) console.log('[ErrorHandler] Loaded v1.2.1');
 
 /**
  * エラーハンドリングユーティリティ
@@ -18,7 +20,7 @@ function createSuccessResponse(data = {}) {
 }
 
 // ========================================
-// エラーレスポンス生成(統一形式)
+// エラーレスポンス生成（統一形式）
 // ========================================
 
 /**

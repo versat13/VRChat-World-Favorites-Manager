@@ -1,4 +1,4 @@
-// popup2_vrc_bridge.js - v1.2.0
+// popup2_vrc_bridge.js - v1.2.1
 
 // ========================================
 // 翻訳データ
@@ -207,7 +207,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   applyLanguage();
   setupEventListeners();
 
-  console.log('[Bridge] Initialized with windowId:', currentWindowId);
+  // console.log('[Bridge] Initialized with windowId:', currentWindowId);
 });
 
 // ========================================
@@ -310,11 +310,11 @@ function setupEventListeners() {
 // ========================================
 async function startVRCAction(actionType) {
   if (isProcessing) {
-    console.log('[Bridge] Already processing');
+    // console.log('[Bridge] Already processing');
     return;
   }
 
-  console.log('[Bridge] Starting action:', actionType);
+  // console.log('[Bridge] Starting action:', actionType);
 
   // 既存のカウントダウンタイマーをクリア
   if (autoCloseTimer) {
@@ -340,7 +340,7 @@ async function startVRCAction(actionType) {
       throw new Error(response.error || 'Failed to start action');
     }
 
-    console.log('[Bridge] Action started successfully');
+    // console.log('[Bridge] Action started successfully');
 
   } catch (error) {
     console.error('[Bridge] Failed to start action:', error);
@@ -352,7 +352,7 @@ async function startVRCAction(actionType) {
 // メッセージハンドラー
 // ========================================
 function handleMessage(message) {
-  console.log('[Bridge] Received message:', message.action);
+  // console.log('[Bridge] Received message:', message.action);
 
   switch (message.action) {
     case 'VRC_ACTION_PROGRESS':
@@ -368,7 +368,7 @@ function handleMessage(message) {
       break;
 
     default:
-      console.log('[Bridge] Unknown action:', message.action);
+    // console.log('[Bridge] Unknown action:', message.action);
   }
 }
 
@@ -383,14 +383,14 @@ function handleProgress(data) {
   setStatus(translatedMessage);
   setProgress(percent);
 
-  console.log(`[Bridge] Progress: ${percent}% - ${translatedMessage}`);
+  // console.log(`[Bridge] Progress: ${percent}% - ${translatedMessage}`);
 }
 
 // ========================================
 // 完了ハンドラー
 // ========================================
 function handleComplete(result) {
-  console.log('[Bridge] Action completed:', result);
+  // console.log('[Bridge] Action completed:', result);
 
   // UI状態の更新
   isProcessing = false;
@@ -402,7 +402,7 @@ function handleComplete(result) {
   if (result.cancelled) {
     setStatus(t('statusCancelled'));
     // 即座にメインpopupへ通知
-    chrome.runtime.sendMessage({ 
+    chrome.runtime.sendMessage({
       type: 'VRC_SYNC_COMPLETED',
       result: result
     }).catch(e => console.warn('Failed to send VRC_SYNC_COMPLETED:', e));
@@ -414,7 +414,7 @@ function handleComplete(result) {
     setStatus(t('statusError'));
     showError(t('notLoggedIn'));
     // 即座にメインpopupへ通知
-    chrome.runtime.sendMessage({ 
+    chrome.runtime.sendMessage({
       type: 'VRC_SYNC_COMPLETED',
       result: result
     }).catch(e => console.warn('Failed to send VRC_SYNC_COMPLETED:', e));
@@ -457,13 +457,13 @@ function handleComplete(result) {
     const errorMsg = t('partialSuccess', { count: errorCount });
     showError(`${errorMsg}\n${result.errors.slice(0, 3).join('\n')}`);
   }
-  
+
   // 即座にメインpopupへ通知
-  chrome.runtime.sendMessage({ 
+  chrome.runtime.sendMessage({
     type: 'VRC_SYNC_COMPLETED',
     result: result
   }).catch(e => console.warn('Failed to send VRC_SYNC_COMPLETED:', e));
-  
+
   scheduleAutoClose();
 }
 
@@ -473,7 +473,7 @@ function handleComplete(result) {
 function scheduleAutoClose() {
   let countdown = 5;
   const ERROR_MESSAGE = document.getElementById('error-message');
-  
+
   const updateCountdown = () => {
     if (countdown > 0) {
       const msg = t('autoCloseIn', { seconds: countdown }) + ' ' + t('manualClose');

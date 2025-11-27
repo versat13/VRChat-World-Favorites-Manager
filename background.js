@@ -1,4 +1,4 @@
-// background.js v1.2.2 (ブロードキャスト修正版)
+// background.js v1.2.1
 
 // ========================================
 // Module Loading
@@ -10,7 +10,9 @@ importScripts(
   'bg_storage_service.js',
   'bg_world_data_model.js',
   'bg_vrc_api_service.js',
-  'bg_import_export_service.js'
+  'bg_import_export_service.js',
+  'bg_user_service.js',
+  'bg_user_watch_notification.js' // 【新規追加】
 );
 
 // ========================================
@@ -180,8 +182,8 @@ async function handleQuickAdd(info, tab) {
       logError('CONTEXT_MENU_QUICK_ADD_FAILED', addResult.reason || addResult.error, { worldId });
     }
 
-  } catch (e) {
-    logError('CONTEXT_MENU_QUICK_ADD_ERROR', e, {
+  } catch (error) {
+    logError('CONTEXT_MENU_QUICK_ADD_ERROR', error, {
       worldId: extractWorldIdFromUrl(info.linkUrl || info.pageUrl)
     });
     showNotification('エラーが発生しました', 'error');
@@ -215,8 +217,8 @@ async function handleFolderSelect(info, tab) {
 
     logAction('CONTEXT_MENU_FOLDER_SELECT_POPUP_OPENED', { worldId });
 
-  } catch (e) {
-    logError('CONTEXT_MENU_FOLDER_SELECT_ERROR', e, {
+  } catch (error) {
+    logError('CONTEXT_MENU_FOLDER_SELECT_ERROR', error, {
       worldId: extractWorldIdFromUrl(info.linkUrl || info.pageUrl)
     });
     showNotification('エラーが発生しました', 'error');
@@ -250,12 +252,21 @@ chrome.runtime.onInstalled.addListener(async () => {
   logAction('EXTENSION_INSTALLED', 'Initializing extension');
   await initializeStorage();
   await initializeContextMenus();
+  await initWatchNotificationService(); // ← 既にある
 });
 
+// 【修正】Service Worker起動時にも初期化
 chrome.runtime.onStartup.addListener(async () => {
   logAction('EXTENSION_STARTUP', 'Extension started');
   await initializeContextMenus();
+  await initWatchNotificationService();
 });
+
+// Service Workerが再起動された時の初期化
+(async () => {
+  logAction('SERVICE_WORKER_START', 'Service worker activated');
+  await initWatchNotificationService();
+})();
 
 // ========================================
 // Context Menu Click Event
@@ -296,7 +307,7 @@ function notifyBridgeWindow(windowId, action, payload = {}) {
       ...payload
     }, (response) => {
       if (chrome.runtime.lastError) {
-        return;
+        // 受信側がない場合のエラーは無視
       }
     });
   });
@@ -309,6 +320,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   logAction('MESSAGE_RECEIVED', { type: request.type });
 
   switch (request.type) {
+    // ============================================================
+    // 既存のメッセージハンドラー
+    // ============================================================
+
     case 'VRC_SYNC_COMPLETED':
       sendResponse({ received: true });
       return true;
@@ -343,11 +358,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     case 'COMMIT_BUFFER':
       commitBuffer(request, sendResponse, (progress) => {
-        // ★シンプル化: chrome.runtime.sendMessage() だけで全popupに配信される
         chrome.runtime.sendMessage(progress, (response) => {
-          // 受信側がない場合のエラーは無視
           if (chrome.runtime.lastError) {
-            // エラーログは出さない（正常動作）
+            // エラーログは出さない(正常動作)
           }
         });
       });
@@ -415,12 +428,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
 
     case 'fetchAllVRCFolders':
-      console.warn('[Background] Deprecated: fetchAllVRCFolders called. Use START_VRC_ACTION.');
+      if (WARN_LOG) console.warn('[Background] Deprecated: fetchAllVRCFolders called. Use START_VRC_ACTION.');
       fetchAllVRCFolders(sendResponse);
       return true;
 
     case 'syncAllFavorites':
-      console.warn('[Background] Deprecated: syncAllFavorites called. Use START_VRC_ACTION.');
+      if (WARN_LOG) console.warn('[Background] Deprecated: syncAllFavorites called. Use START_VRC_ACTION.');
       syncAllFavorites(sendResponse);
       return true;
 
@@ -453,7 +466,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
 
     case 'COMMIT_BUFFER_ERROR':
-      // ★追加: エラーメッセージを全popupにブロードキャスト
       chrome.runtime.sendMessage({
         action: 'COMMIT_BUFFER_ERROR',
         error: request.error || 'Unknown error'
@@ -464,6 +476,433 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
       sendResponse({ received: true });
       return true;
+
+    // ============================================================
+    // ユーザー情報取得機能(既存)
+    // ============================================================
+
+    case 'getWorldInfo':
+      (async () => {
+        try {
+          const result = await fetchWorldInfo(request.worldId);
+          sendResponse(result);
+        } catch (error) {
+          logError('GET_WORLD_INFO_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    case 'fetchUserInfo':
+      (async () => {
+        try {
+          const result = await fetchUserInfo(request.userIdOrName);
+          sendResponse(result);
+        } catch (error) {
+          logError('FETCH_USER_INFO_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    case 'fetchUserCreatedWorlds':
+      (async () => {
+        try {
+          const progressCallback = (progress) => {
+            chrome.runtime.sendMessage({
+              type: 'userCreatedWorldsProgress',
+              data: progress
+            }).catch(() => {
+              // ウィンドウが閉じられている場合はエラーを無視
+            });
+          };
+
+          const result = await fetchUserCreatedWorlds(
+            request.userId,
+            progressCallback
+          );
+
+          sendResponse(result);
+        } catch (error) {
+          logError('FETCH_USER_CREATED_WORLDS_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    case 'fetchWorldDetailsBatch':
+      (async () => {
+        try {
+          const progressCallback = (progress) => {
+            chrome.runtime.sendMessage({
+              type: 'userFavoritesProgress',
+              data: progress
+            }).catch(() => { });
+          };
+
+          const result = await fetchWorldDetailsBatch(
+            request.worldIds,
+            progressCallback
+          );
+
+          sendResponse(result);
+        } catch (error) {
+          logError('FETCH_WORLD_DETAILS_BATCH_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    case 'generateFavoritesCSV':
+      try {
+        const csv = generateFavoritesCSV(
+          request.favorites,
+          request.worldDetails || {},
+          request.includeDetails
+        );
+
+        sendResponse({
+          success: true,
+          csv: csv
+        });
+      } catch (error) {
+        logError('GENERATE_FAVORITES_CSV_HANDLER', error);
+        sendResponse(createGenericError(error.message));
+      }
+      return true;
+
+    case 'generateCreatedWorldsCSV':
+      try {
+        const csv = generateCreatedWorldsCSV(request.worlds);
+
+        sendResponse({
+          success: true,
+          csv: csv
+        });
+      } catch (error) {
+        logError('GENERATE_CREATED_WORLDS_CSV_HANDLER', error);
+        sendResponse(createGenericError(error.message));
+      }
+      return true;
+
+    case 'fetchUserWorldCount':
+      (async () => {
+        try {
+          const result = await fetchUserWorldCount(request.userId);
+          sendResponse(result);
+        } catch (error) {
+          logError('FETCH_USER_WORLD_COUNT_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    // ============================================================
+    // ウォッチリスト管理
+    // ============================================================
+
+    case 'loadWatchList':
+      (async () => {
+        try {
+          const watchList = await loadWatchList();
+          sendResponse({ success: true, watchList });
+        } catch (error) {
+          logError('LOAD_WATCH_LIST_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    case 'addUserToWatchList':
+      (async () => {
+        try {
+          const progressCallback = (progress) => {
+            chrome.runtime.sendMessage({
+              type: 'watchListProgress',
+              data: progress
+            }).catch(() => {
+              // ウィンドウが閉じられている場合はエラーを無視
+            });
+          };
+
+          const result = await addUserToWatchList(
+            request.userId,
+            progressCallback
+          );
+
+          sendResponse(result);
+        } catch (error) {
+          logError('ADD_USER_TO_WATCH_LIST_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    case 'removeUserFromWatchList':
+      (async () => {
+        try {
+          const result = await removeUserFromWatchList(request.userId);
+          sendResponse(result);
+        } catch (error) {
+          logError('REMOVE_USER_FROM_WATCH_LIST_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    case 'refreshUserWorlds':
+      (async () => {
+        try {
+          const progressCallback = (progress) => {
+            chrome.runtime.sendMessage({
+              type: 'watchListProgress',
+              data: progress
+            }).catch(() => { });
+          };
+
+          const result = await refreshUserWorlds(
+            request.userId,
+            progressCallback
+          );
+
+          sendResponse(result);
+        } catch (error) {
+          logError('REFRESH_USER_WORLDS_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    case 'markUserAsChecked':
+      (async () => {
+        try {
+          const result = await markUserAsChecked(request.userId);
+          sendResponse(result);
+        } catch (error) {
+          logError('MARK_USER_AS_CHECKED_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    case 'toggleUserNotification':
+      (async () => {
+        try {
+          const result = await toggleUserNotification(request.userId, request.enabled);
+          sendResponse(result);
+        } catch (error) {
+          logError('TOGGLE_USER_NOTIFICATION_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    case 'updateNotificationSetting':
+      (async () => {
+        try {
+          const result = await updateNotificationSetting(
+            request.userId,
+            request.setting,
+            request.enabled
+          );
+          sendResponse(result);
+        } catch (error) {
+          logError('UPDATE_NOTIFICATION_SETTING_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    case 'updateGlobalNotificationSetting':
+      (async () => {
+        try {
+          const result = await updateGlobalNotificationSetting(
+            request.setting,
+            request.enabled
+          );
+          sendResponse(result);
+        } catch (error) {
+          logError('UPDATE_GLOBAL_NOTIFICATION_SETTING_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    case 'exportWatchList':
+      (async () => {
+        try {
+          const result = await exportWatchListData();
+          sendResponse(result);
+        } catch (error) {
+          logError('EXPORT_WATCH_LIST_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    case 'importWatchList':
+      (async () => {
+        try {
+          const result = await importWatchListData(request.watchListIds);
+          sendResponse(result);
+        } catch (error) {
+          logError('IMPORT_WATCH_LIST_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+
+    // 【v1.2.2 新規追加】ウォッチリストからワールドをフォルダに追加
+    case 'addWorldToFolderFromWatch':
+      (async () => {
+        try {
+          // 1. ワールド詳細取得
+          const details = await getSingleWorldDetailsInternal(request.worldId);
+
+          if (!details) {
+            sendResponse(createGenericError('ワールド情報の取得に失敗しました'));
+            return;
+          }
+
+          // 2. 既存チェック（重複防止）
+          const allWorlds = await getAllWorldsInternal();
+          const existing = allWorlds.find(w => w.id === request.worldId);
+
+          if (existing) {
+            // フォルダ名を取得して通知
+            let folderName = '未分類';
+            if (existing.folderId !== 'none') {
+              if (existing.folderId.startsWith('worlds')) {
+                folderName = `VRC ${existing.folderId.replace('worlds', '')}`;
+              } else {
+                const sync = await chrome.storage.sync.get(['folders']);
+                const folder = (sync.folders || []).find(f => f.id === existing.folderId);
+                folderName = folder ? folder.name : existing.folderId;
+              }
+            }
+
+            sendResponse({
+              success: false,
+              reason: 'already_exists',
+              userMessage: `「${details.name}」は既に「${folderName}」に登録済みです`
+            });
+            return;
+          }
+
+          // 3. フォルダに追加（既存関数を利用）
+          const result = await addWorldToFolder({
+            ...details,
+            folderId: request.folderId
+          });
+
+          sendResponse(result);
+        } catch (error) {
+          logError('ADD_WORLD_TO_FOLDER_FROM_WATCH_ERROR', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    // ============================================================
+    // 【新規追加 v1.2.1】通知関連
+    // ============================================================
+
+    case 'getUnreadNotifications':
+      try {
+        const result = getUnreadNotifications();
+        sendResponse(result);
+      } catch (error) {
+        logError('GET_UNREAD_NOTIFICATIONS_HANDLER', error);
+        sendResponse(createGenericError(error.message));
+      }
+      return true;
+
+    case 'clearUserNotifications':
+      (async () => {
+        try {
+          const result = await clearUserNotifications(request.userId);
+          sendResponse(result);
+        } catch (error) {
+          logError('CLEAR_USER_NOTIFICATIONS_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    case 'clearAllNotifications':
+      (async () => {
+        try {
+          const result = await clearAllNotifications();
+          sendResponse(result);
+        } catch (error) {
+          logError('CLEAR_ALL_NOTIFICATIONS_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    case 'manualCheckUpdates':
+      (async () => {
+        try {
+          const result = await manualCheckUpdates();
+          sendResponse(result);
+        } catch (error) {
+          logError('MANUAL_CHECK_UPDATES_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    // ============================================================
+    // ウォッチリスト件数取得
+    // ============================================================
+
+    case 'getWatchListCount':
+      (async () => {
+        try {
+          const result = await getWatchListCount();
+          sendResponse(result);
+        } catch (error) {
+          logError('GET_WATCH_LIST_COUNT_HANDLER', error);
+          sendResponse({ success: false, count: 0, error: error.message });
+        }
+      })();
+      return true;
+
+    // ============================================================
+    // ウォッチリスト追加（エイリアス）
+    // ============================================================
+
+    case 'addToWatchList':
+      (async () => {
+        try {
+          // addUserToWatchList を呼び出す
+          const progressCallback = (progress) => {
+            chrome.runtime.sendMessage({
+              type: 'watchListProgress',
+              data: progress
+            }).catch(() => {
+              // ウィンドウが閉じられている場合はエラーを無視
+            });
+          };
+
+          const result = await addUserToWatchList(
+            request.userId,
+            progressCallback
+          );
+
+          sendResponse(result);
+        } catch (error) {
+          logError('ADD_TO_WATCH_LIST_HANDLER', error);
+          sendResponse(createGenericError(error.message));
+        }
+      })();
+      return true;
+
+    // ============================================================
+    // デフォルト(不明なメッセージ)
+    // ============================================================
 
     default:
       logError('UNKNOWN_MESSAGE', 'Unknown message type', { type: request.type });
