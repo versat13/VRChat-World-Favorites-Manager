@@ -1,7 +1,7 @@
-// bg_vrc_api_service.js v1.2.1 (前半)
+// bg_vrc_api_service.js v1.3.0 (前半)
 
 // モジュール読み込みログ（開発時のみ）
-if (INFO_LOG) console.log('[VrcApiService] Loaded v1.2.1');
+if (INFO_LOG) console.log('[VrcApiService] Loaded v1.3.0');
 
 // ========================================
 // 中断チェックヘルパー関数
@@ -651,7 +651,107 @@ async function saveWorldDetailToCache(worldId, worldData) {
 
   await chrome.storage.local.set({ [key]: chunk });
 }
-// bg_vrc_api_service.js v1.2.1 (後半)
+// bg_vrc_api_service.js v1.3.0 (後半)
+
+// ========================================
+// VRC Action Handler (background.js から呼び出される)
+// ========================================
+
+/**
+ * START_VRC_ACTION メッセージのハンドラ
+ * background.js のメッセージルーターから呼び出される
+ * 
+ * @param {Object} request - リクエストオブジェクト
+ * @param {string} request.actionType - 'FETCH' または 'REFLECT'
+ * @param {number} request.windowId - Bridge ウィンドウID
+ * @param {Function} sendResponse - レスポンスコールバック
+ */
+function handleVRCAction(request, sendResponse) {
+  const { actionType, windowId } = request;
+
+  // パラメータ検証
+  if (!actionType || !windowId) {
+    sendResponse({
+      success: false,
+      error: 'Invalid request: actionType and windowId are required'
+    });
+    return;
+  }
+
+  // サポートされているアクションタイプの検証
+  if (actionType !== 'FETCH' && actionType !== 'REFLECT') {
+    sendResponse({
+      success: false,
+      error: `Invalid actionType: ${actionType}. Must be 'FETCH' or 'REFLECT'`
+    });
+    return;
+  }
+
+  logAction('VRC_ACTION_START', { actionType, windowId });
+
+  // activeVRCProcesses に登録 (background.js で定義されている)
+  if (typeof activeVRCProcesses !== 'undefined') {
+    activeVRCProcesses.set(windowId, { aborted: false });
+  }
+
+  // 即座にレスポンスを返す (非同期処理は別スレッドで実行)
+  sendResponse({ success: true, message: 'Processing started' });
+
+  // 非同期処理を開始
+  startVRCActionAsync(actionType, windowId);
+}
+
+/**
+ * VRC 同期処理の非同期実行
+ * 
+ * @param {string} actionType - 'FETCH' または 'REFLECT'
+ * @param {number} windowId - Bridge ウィンドウID
+ */
+async function startVRCActionAsync(actionType, windowId) {
+  try {
+    // 進捗コールバックを定義
+    const progressCallback = (action, payload) => {
+      // background.js の notifyBridgeWindow を呼び出す
+      if (typeof notifyBridgeWindow === 'function') {
+        notifyBridgeWindow(windowId, action, payload);
+      }
+    };
+
+    // startVRChatSyncProcess を呼び出して同期処理を実行
+    const result = await startVRChatSyncProcess(
+      actionType,
+      windowId,
+      progressCallback
+    );
+
+    // 中断されていなければ完了通知を送信
+    if (!checkAborted(windowId)) {
+      progressCallback('VRC_ACTION_COMPLETE', result);
+    }
+
+  } catch (error) {
+    logError('VRC_ACTION_FAILED', error, { actionType, windowId });
+
+    // 中断されていなければエラー通知を送信
+    if (!checkAborted(windowId)) {
+      const progressCallback = (action, payload) => {
+        if (typeof notifyBridgeWindow === 'function') {
+          notifyBridgeWindow(windowId, action, payload);
+        }
+      };
+
+      progressCallback('VRC_ACTION_ERROR', {
+        error: error.message || 'Unknown error'
+      });
+    }
+
+  } finally {
+    // クリーンアップ (background.js の関数を呼び出す)
+    if (typeof cleanupVRCAction === 'function') {
+      cleanupVRCAction(windowId);
+    }
+  }
+}
 
 // ========================================
 // 定数
@@ -849,7 +949,7 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null, windowI
           folderId: vrcWorld.folderId,
           favoriteRecordId: vrcWorld.favoriteRecordId
         };
-        
+
         // VRCフォルダか判定して振り分け
         if (vrcWorld.folderId.startsWith('worlds')) {
           vrcWorldsToAdd.push(worldData);
@@ -868,7 +968,7 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null, windowI
       const moveToVRC = worldsToMove.filter(m => !m.fromFolder.startsWith('worlds') && m.toFolder.startsWith('worlds')).length;
       const moveSyncToSync = worldsToMove.filter(m => !m.fromFolder.startsWith('worlds') && !m.toFolder.startsWith('worlds')).length;
       const moveVRCToVRC = worldsToMove.filter(m => m.fromFolder.startsWith('worlds') && m.toFolder.startsWith('worlds')).length;
-      
+
       // Sync側の書き込み（チャンク数）
       if (moveToSync > 0 || moveToVRC > 0 || moveSyncToSync > 0) {
         const currentSyncWorlds = await loadWorldsChunked();
@@ -876,7 +976,7 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null, windowI
         const chunksNeeded = Math.ceil(afterMoveCount / WORLDS_CHUNK_SIZE);
         estimatedWrites += chunksNeeded + 1; // チャンク保存 + 古いチャンク削除
       }
-      
+
       // VRC側の書き込み
       if (moveToVRC > 0 || moveVRCToVRC > 0 || moveToSync > 0) {
         estimatedWrites += 1; // vrcWorlds保存
@@ -895,8 +995,8 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null, windowI
       estimatedWrites += 1; // vrcWorlds保存
     }
 
-    logAction('FETCH_ESTIMATED_WRITES', { 
-      estimatedWrites, 
+    logAction('FETCH_ESTIMATED_WRITES', {
+      estimatedWrites,
       moveCount: worldsToMove.length,
       syncAddCount: syncWorldsToAdd.length,
       vrcAddCount: vrcWorldsToAdd.length,
@@ -912,7 +1012,7 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null, windowI
         availableWrites,
         willWaitSeconds: waitTime
       });
-      
+
       // 事前に待機
       if (waitTime > 0) {
         notifyProgress('fetch_phase4_rate_limit_wait', 87, { waitSeconds: waitTime });
@@ -952,7 +1052,7 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null, windowI
         syncWorlds.push({ id: world.id, folderId: world.folderId });
       }
       await saveWorldsChunked(syncWorlds);
-      
+
       // 詳細情報は既に保存済み（Phase 2で完了）
       addedCount += syncWorldsToAdd.length;
     }
@@ -961,7 +1061,7 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null, windowI
     if (vrcWorldsToAdd.length > 0) {
       const local = await chrome.storage.local.get(['vrcWorlds']);
       const vrcWorlds = local.vrcWorlds || [];
-      
+
       for (const world of vrcWorldsToAdd) {
         vrcWorlds.push({
           id: world.id,
@@ -969,7 +1069,7 @@ async function fetchAllVRCFolders(sendResponse, progressCallback = null, windowI
           favoriteRecordId: world.favoriteRecordId
         });
       }
-      
+
       await chrome.storage.local.set({ vrcWorlds });
       addedCount += vrcWorldsToAdd.length;
     }
@@ -1132,10 +1232,10 @@ async function syncAllFavorites(sendResponse, progressCallback = null, windowId 
 
     const local = await chrome.storage.local.get(['vrcWorlds']);
     const localVRCWorlds = local.vrcWorlds || [];
-    
+
     // 詳細情報をworldDetails_*から取得
     const worldDetailsMap = await getAllWorldDetailsInternal();
-    
+
     const localMap = new Map();
     for (const world of localVRCWorlds) {
       const details = worldDetailsMap[world.id];
@@ -1443,7 +1543,7 @@ async function syncAllFavorites(sendResponse, progressCallback = null, windowId 
 
     for (const localWorld of localVRCWorlds) {
       const vrcData = finalVrcMap.get(localWorld.id);
-      
+
       // 詳細情報を収集
       const details = worldDetailsMap[localWorld.id];
       if (details) {
@@ -1457,14 +1557,14 @@ async function syncAllFavorites(sendResponse, progressCallback = null, windowId 
 
       if (worldsToMoveToUncategorized.has(localWorld.id)) {
         const unavailableInfo = worldsToMoveToUncategorized.get(localWorld.id);
-        
+
         // vrcWorldsには最小限のデータのみ
         updatedVRCWorlds.push({
           id: localWorld.id,
           folderId: UNCATEGORIZED_FOLDER,
           favoriteRecordId: null
         });
-        
+
         // 詳細情報を更新
         detailsToSave[localWorld.id] = {
           name: unavailableInfo.name,
@@ -1472,7 +1572,7 @@ async function syncAllFavorites(sendResponse, progressCallback = null, windowId 
           releaseStatus: unavailableInfo.releaseStatus,
           thumbnailImageUrl: detailsToSave[localWorld.id]?.thumbnailImageUrl || null
         };
-        
+
         movedToUncategorizedCount++;
         logAction('MOVED_TO_UNCATEGORIZED', {
           worldId: localWorld.id,

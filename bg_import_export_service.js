@@ -1,7 +1,7 @@
-// bg_import_export_service.js v1.2.1
+// bg_import_export_service.js v1.3.0
 
 // モジュール読み込みログ（開発時のみ）
-if (INFO_LOG) console.log('[ImportExportService] Loaded v1.2.1');
+if (INFO_LOG) console.log('[ImportExportService] Loaded v1.3.0');
 
 // ========================================
 // インポート
@@ -332,7 +332,7 @@ async function batchImportWorlds(request, sendResponse) {
         folderId: w.folderId,
         favoriteRecordId: w.favoriteRecordId || null
       }));
-      
+
       vrcWorlds.push(...minimalWorlds);
       await chrome.storage.local.set({ vrcWorlds });
       addedCount += validWorlds.length;

@@ -1,4 +1,4 @@
-// options_page.js v1.2.2
+// options_page.js v1.3.0
 
 // ==================== バージョン情報 ====================
 const EXTENSION_VERSION = chrome.runtime.getManifest().version;

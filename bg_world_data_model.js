@@ -1,7 +1,7 @@
-// bg_world_data_model.js v1.2.1
+// bg_world_data_model.js v1.3.0
 
 // モジュール読み込みログ（開発時のみ）
-if (INFO_LOG) console.log('[WorldDataModel] Loaded v1.2.1');
+if (INFO_LOG) console.log('[WorldDataModel] Loaded v1.3.0');
 
 // ========================================
 // Internal Helpers (For Export)
@@ -91,7 +91,7 @@ async function addWorldToFolder(world) {
 
       const local = await chrome.storage.local.get(['vrcWorlds']);
       const vrcWorldsList = local.vrcWorlds || [];
-      
+
       vrcWorldsList.push({
         id: world.id,
         folderId: folderId,
@@ -410,7 +410,7 @@ async function processUnifiedBatch(batch, progressCallback = null) {
 
   try {
     let syncWorlds = await loadWorldsChunked();
-    
+
     const local = await chrome.storage.local.get(['vrcWorlds']);
     let vrcWorlds = local.vrcWorlds || [];
 
@@ -424,45 +424,45 @@ async function processUnifiedBatch(batch, progressCallback = null) {
     const moveToSync = batch.filter(c => c.type === 'move' && c.fromFolder.startsWith('worlds') && !c.toFolder.startsWith('worlds'));
     const moveToVRC = batch.filter(c => c.type === 'move' && !c.fromFolder.startsWith('worlds') && c.toFolder.startsWith('worlds'));
     const deleteFromSync = batch.filter(c => c.type === 'delete' && !c.folderId.startsWith('worlds'));
-    
+
     const syncAfterDelete = syncWorlds.length - deleteFromSync.length;
     const syncAfterMove = syncAfterDelete + moveToSync.length - moveToVRC.length;
-    
+
     if (syncAfterMove > SYNC_WORLD_LIMIT) {
       const overflow = syncAfterMove - SYNC_WORLD_LIMIT;
       logError('BATCH_SYNC_LIMIT_EXCEEDED', `Would exceed limit: ${syncAfterMove}/${SYNC_WORLD_LIMIT}`, { overflow });
-      return { 
+      return {
         movedSuccess: 0,
         deletedSuccess: 0,
-        errors: batch.length, 
-        errorMessages: [`Sync上限超過: ${overflow}件オーバー (上限${SYNC_WORLD_LIMIT}件)`] 
+        errors: batch.length,
+        errorMessages: [`Sync上限超過: ${overflow}件オーバー (上限${SYNC_WORLD_LIMIT}件)`]
       };
     }
-    
+
     // VRCフォルダ容量チェック
     const vrcFolderCounts = {};
     vrcWorlds.forEach(w => {
       vrcFolderCounts[w.folderId] = (vrcFolderCounts[w.folderId] || 0) + 1;
     });
-    
+
     for (const change of moveToVRC) {
       vrcFolderCounts[change.toFolder] = (vrcFolderCounts[change.toFolder] || 0) + 1;
     }
-    
+
     const vrcAddByFolder = {};
     for (const change of moveToVRC) {
       vrcAddByFolder[change.toFolder] = (vrcAddByFolder[change.toFolder] || 0) + 1;
     }
-    
+
     for (const [folderId, count] of Object.entries(vrcFolderCounts)) {
       if (count > VRC_FOLDER_LIMIT) {
         const addCount = vrcAddByFolder[folderId] || 0;
         logError('BATCH_VRC_LIMIT_EXCEEDED', `${folderId}: ${count}/${VRC_FOLDER_LIMIT}`, { addCount });
-        return { 
+        return {
           movedSuccess: 0,
           deletedSuccess: 0,
-          errors: batch.length, 
-          errorMessages: [`${folderId}上限超過: ${addCount}件追加で合計${count}件 (上限${VRC_FOLDER_LIMIT}件)`] 
+          errors: batch.length,
+          errorMessages: [`${folderId}上限超過: ${addCount}件追加で合計${count}件 (上限${VRC_FOLDER_LIMIT}件)`]
         };
       }
     }
@@ -517,7 +517,7 @@ async function processUnifiedBatch(batch, progressCallback = null) {
             if (vrcIndex !== -1) {
               vrcWorlds.splice(vrcIndex, 1);
               syncWorlds.push({ id: change.worldId, folderId: change.toFolder });
-              
+
               movedSuccessCount++;
               vrcModified = true;
               syncModified = true;
@@ -531,18 +531,18 @@ async function processUnifiedBatch(batch, progressCallback = null) {
             const syncIndex = syncWorlds.findIndex(w => w.id === change.worldId);
             if (syncIndex !== -1) {
               syncWorlds.splice(syncIndex, 1);
-              
+
               const details = await getWorldDetails(change.worldId);
               if (!details) {
                 logAction('MOVE_DETAILS_NOT_FOUND', { worldId: change.worldId, note: 'Details missing - might cause display issues' });
               }
-              
+
               vrcWorlds.push({
                 id: change.worldId,
                 folderId: change.toFolder,
                 favoriteRecordId: null
               });
-              
+
               movedSuccessCount++;
               syncModified = true;
               vrcModified = true;
@@ -570,7 +570,7 @@ async function processUnifiedBatch(batch, progressCallback = null) {
           logError('UNIFIED_BATCH_RATE_LIMIT', e.message, change);
           throw e;
         }
-        
+
         errorMessages.push(`${change.worldId || 'unknown'}: ${e.message}`);
         logError('UNIFIED_BATCH_ITEM_ERROR', e, change);
       }
@@ -578,11 +578,11 @@ async function processUnifiedBatch(batch, progressCallback = null) {
 
     // 書き込み回数計算
     let totalWrites = 0;
-    
+
     if (syncModified) {
       const worldChunks = Math.ceil(syncWorlds.length / WORLDS_CHUNK_SIZE);
       totalWrites += worldChunks;
-      
+
       const sync = await chrome.storage.sync.get(null);
       const oldChunkKeys = Object.keys(sync).filter(key => key.startsWith('worlds_'));
       const newChunkKeys = Array.from({ length: worldChunks }, (_, i) => `worlds_${i}`);
@@ -591,7 +591,7 @@ async function processUnifiedBatch(batch, progressCallback = null) {
         totalWrites += 1;
       }
     }
-    
+
     if (vrcModified) {
       totalWrites += 1;
     }
@@ -615,32 +615,32 @@ async function processUnifiedBatch(batch, progressCallback = null) {
     }
 
     logBatch('UNIFIED_BATCH_COMPLETE', { movedSuccess: movedSuccessCount, deletedSuccess: deletedSuccessCount, errors: errorMessages.length });
-    
-    return { 
+
+    return {
       movedSuccess: movedSuccessCount,
       deletedSuccess: deletedSuccessCount,
-      errors: errorMessages.length, 
-      errorMessages 
+      errors: errorMessages.length,
+      errorMessages
     };
-    
+
   } catch (error) {
     if (error.message && error.message.includes('MAX_WRITE_OPERATIONS_PER_MINUTE')) {
       logError('UNIFIED_BATCH_RATE_LIMIT_FATAL', error.message);
-      return { 
+      return {
         movedSuccess: 0,
         deletedSuccess: 0,
-        errors: batch.length, 
+        errors: batch.length,
         errorMessages: ['短時間に多くの変更を行ったため、約60秒お待ちください'],
         rateLimitError: true
       };
     }
-    
+
     logError('UNIFIED_BATCH_ERROR', error);
-    return { 
+    return {
       movedSuccess: 0,
       deletedSuccess: 0,
-      errors: batch.length, 
-      errorMessages: [error.message] 
+      errors: batch.length,
+      errorMessages: [error.message]
     };
   }
 }
@@ -649,7 +649,7 @@ async function commitBuffer(request, sendResponse, progressCallback = null) {
   try {
     await batchUpdateWorlds(request.changes, (response) => {
       sendResponse(response);
-      
+
       // 統一型使用: ProgressMessage.commitComplete()
       if (progressCallback) {
         try {
@@ -665,20 +665,20 @@ async function commitBuffer(request, sendResponse, progressCallback = null) {
         }
       }
     }, progressCallback);
-    
+
   } catch (error) {
     logError('COMMIT_BUFFER_ERROR', error, {
       movedCount: request.changes?.movedWorlds?.length || 0,
       deletedCount: request.changes?.deletedWorlds?.length || 0
     });
-    
+
     sendResponse({
       success: false,
       error: error.message || 'Commit failed',
       movedCount: 0,
       deletedCount: 0
     });
-    
+
     // 統一型使用: ProgressMessage.commitError()
     if (progressCallback) {
       try {

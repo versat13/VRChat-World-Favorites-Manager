@@ -830,7 +830,8 @@ async function addUserToWatchList(userId, progressCallback = null) {
         displayName: user.displayName,
         worldCount: worlds.length
       },
-      reason: alreadyExists ? 'already_exists' : 'added' // 【追加】理由を返す
+      reason: alreadyExists ? 'already_exists' : 'added',
+      isNew: !alreadyExists // 【v1.2.2 修正】新規追加かどうかを明確に返す
     };
 
   } catch (error) {

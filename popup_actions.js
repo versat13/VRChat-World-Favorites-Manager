@@ -1,4 +1,4 @@
-// popup_actions.js v1.2.2 (前半)
+// popup_actions.js v1.3.0 (前半)
 // ワールド操作・コミット・移動・削除
 
 // ============================================================
@@ -1583,10 +1583,10 @@ async function handleAddAuthorToWatchList(worldId) {
     // authorIdが存在する場合はそのまま使用
     if (world.authorId) {
       if (DEBUG_LOG_ACTIONS) {
-        logAction('ADD_AUTHOR_TO_WATCH_LIST', { 
-          worldId, 
+        logAction('ADD_AUTHOR_TO_WATCH_LIST', {
+          worldId,
           authorId: world.authorId,
-          authorName: world.authorName 
+          authorName: world.authorName
         });
       }
 
@@ -1595,32 +1595,22 @@ async function handleAddAuthorToWatchList(worldId) {
         userId: world.authorId
       });
 
-      if (response.success) {
+      if (response && response.success) {
         showNotification(
-          t('addedToWatchList', { authorName: world.authorName }) ||
-          `${world.authorName} をウォッチリストに追加しました`,
+          response.isNew
+            ? t('addedToWatchList', { authorName: world.authorName })
+            : t('alreadyInWatchList', { authorName: world.authorName }),
           'success'
         );
-        
-        // 【修正】background 側の処理完了を待ってからバッジ更新
+
         // 300ms待機してから更新（background の通知状態が確実に更新されるまで）
         setTimeout(async () => {
           await updateUserWatchBadge(true); // 強制更新フラグを追加
-          
+
           if (DEBUG_LOG_ACTIONS) {
             logAction('WATCH_BADGE_UPDATED_AFTER_ADD', { authorId: world.authorId });
           }
         }, 300);
-
-      } else if (response.reason === 'already_exists') {
-        showNotification(
-          t('alreadyInWatchList', { authorName: world.authorName }) ||
-          `${world.authorName} は既にウォッチリスト中です`,
-          'info'
-        );
-        
-        // 既存ユーザーの場合も念のため更新
-        setTimeout(() => updateUserWatchBadge(true), 100);
 
       } else {
         showNotification(t('addToWatchListFailed') || '追加に失敗しました', 'error');
@@ -1643,10 +1633,10 @@ async function handleAddAuthorToWatchList(worldId) {
     const authorName = worldInfoResponse.world.authorName || 'Unknown';
 
     if (DEBUG_LOG_ACTIONS) {
-      logAction('ADD_AUTHOR_TO_WATCH_LIST_FETCHED', { 
-        worldId, 
-        authorId, 
-        authorName 
+      logAction('ADD_AUTHOR_TO_WATCH_LIST_FETCHED', {
+        worldId,
+        authorId,
+        authorName
       });
     }
 
@@ -1656,30 +1646,21 @@ async function handleAddAuthorToWatchList(worldId) {
       userId: authorId
     });
 
-    if (response.success) {
+    if (response && response.success) {
       showNotification(
-        t('addedToWatchList', { authorName }) ||
-        `${authorName} をウォッチリストに追加しました`,
+        response.isNew
+          ? t('addedToWatchList', { authorName })
+          : t('alreadyInWatchList', { authorName }),
         'success'
       );
-      
-      // 【修正】同様に待機してから更新
+
       setTimeout(async () => {
         await updateUserWatchBadge(true);
-        
+
         if (DEBUG_LOG_ACTIONS) {
           logAction('WATCH_BADGE_UPDATED_AFTER_ADD_FETCHED', { authorId });
         }
       }, 300);
-
-    } else if (response.reason === 'already_exists') {
-      showNotification(
-        t('alreadyInWatchList', { authorName }) ||
-        `${authorName} は既にウォッチリスト中です`,
-        'info'
-      );
-      
-      setTimeout(() => updateUserWatchBadge(true), 100);
 
     } else {
       showNotification(t('addToWatchListFailed') || '追加に失敗しました', 'error');

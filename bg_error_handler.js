@@ -1,7 +1,7 @@
-// bg_error_handler.js v1.2.1
+// bg_error_handler.js v1.3.0
 
 // モジュール読み込みログ（開発時のみ）
-if (INFO_LOG) console.log('[ErrorHandler] Loaded v1.2.1');
+if (INFO_LOG) console.log('[ErrorHandler] Loaded v1.3.0');
 
 /**
  * エラーハンドリングユーティリティ
@@ -54,13 +54,13 @@ function createLimitError(limitType, details = {}) {
       userMessage: '短時間に多くの変更を行ったため、処理を一時停止しています。1分ほど待ってから再度お試しください。'
     }
   };
-  
+
   const errorInfo = errorMap[limitType] || {
     reason: 'limit_exceeded',
     message: '制限を超えています',
     userMessage: '操作の制限に達しました。しばらく待ってから再度お試しください。'
   };
-  
+
   return {
     success: false,
     reason: errorInfo.reason,
@@ -116,7 +116,7 @@ function createApiError(status, context = {}) {
   let message = 'VRChat APIエラーが発生しました';
   let userMessage = 'VRChatとの通信でエラーが発生しました。';
   let reason = 'api_error';
-  
+
   if (status === 401) {
     return createAuthError();
   } else if (status === 404) {
@@ -132,7 +132,7 @@ function createApiError(status, context = {}) {
     userMessage = 'VRChatのサーバーで問題が発生しています。しばらく待ってから再度お試しください。';
     reason = 'server_error';
   }
-  
+
   return {
     success: false,
     reason: reason,

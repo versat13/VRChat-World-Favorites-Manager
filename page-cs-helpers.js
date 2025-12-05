@@ -2,7 +2,7 @@
 // Content Script 共通ヘルパー関数(page-favorites.js, page-world.js で使用)
 // v1.2.2: フォルダモーダル・通知をpage-helpers-shared.jsに移動
 
-(function(window) {
+(function (window) {
   'use strict';
 
   const DEBUG_LOG = false; // 本番=false, 開発=true
@@ -58,7 +58,14 @@
       worldIdNotFound: 'ワールドIDを取得できませんでした',
       error: 'エラーが発生しました',
       copyFailed: 'リンクのコピーに失敗しました',
-      registered: '✓ 登録済み'
+      registered: '✓ 登録済み',
+      addToWatchlist: 'ウォッチリストに追加',
+      addedToWatchList: '{authorName} をウォッチリストに追加しました',
+      alreadyInWatchList: '{authorName} は既にリストに登録済みです',
+      addToWatchListFailed: 'ウォッチリストへの追加に失敗しました',
+      authorInfoFetchFailed: '作者情報の取得に失敗しました',
+      fetchingWorldDetails: 'ワールド情報を取得中...',
+      worldDetailsFailed: 'ワールド情報の取得に失敗しました'
     },
     en: {
       extInvalidated: 'Extension context invalidated. Please reload the page.',
@@ -109,7 +116,14 @@
       worldIdNotFound: 'Failed to get world ID',
       error: 'An error occurred',
       copyFailed: 'Failed to copy link',
-      registered: '✓ Registered'
+      registered: '✓ Registered',
+      addToWatchlist: 'Add to Watchlist',
+      addedToWatchList: 'Added {authorName} to watch list',
+      alreadyInWatchList: '{authorName} is already on the list',
+      addToWatchListFailed: 'Failed to add to watch list',
+      authorInfoFetchFailed: 'Failed to fetch author information',
+      fetchingWorldDetails: 'Fetching world details...',
+      worldDetailsFailed: 'Failed to fetch world details'
     }
   };
 

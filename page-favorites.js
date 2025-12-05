@@ -1,4 +1,4 @@
-// page-favorites.js v1.2.1 前半
+// page-favorites.js v1.3.0 前半
 
 (function () {
   'use strict';
@@ -447,6 +447,51 @@
     return btn;
   }
 
+  // ==================== ウォッチリストボタン作成 ====================
+  function createWatchlistButton(worldId, card) {
+    const btn = createControlButton(
+      '👤',
+      t('addToWatchlist'),
+      async () => {
+        const btn = event.currentTarget;
+        const iconContainer = btn.querySelector('.btn-icon');
+        const originalIcon = iconContainer.textContent;
+
+        if (!worldId) {
+          showNotification(t('worldIdUnresolved'), 'error');
+          return;
+        }
+
+        iconContainer.textContent = '⏳';
+        setButtonLoading(btn, true);
+        btn.disabled = true;
+
+        try {
+          const response = await chrome.runtime.sendMessage({
+            type: 'addToWatchList',
+            worldId: worldId
+          });
+
+          if (response && response.success) {
+            const authorName = response.authorName || 'Unknown';
+            const messageKey = response.isNew ? 'addedToWatchList' : 'alreadyInWatchList';
+            const messageType = response.isNew ? 'success' : 'info';
+            showNotification(t(messageKey, { authorName: authorName }), messageType);
+          } else {
+            showNotification(response.userMessage || t('addToWatchListFailed'), 'error');
+          }
+        } catch (error) {
+          showNotification(t('addToWatchListFailed'), 'error');
+        } finally {
+          setButtonLoading(btn, false);
+          btn.disabled = false;
+          iconContainer.textContent = originalIcon;
+        }
+      }
+    );
+    return btn;
+  }
+
   // ==================== 削除ボタン作成 ====================
   function createDeleteButton(favoriteId, card, forceEnable = false, worldId = null) {
     const disabled = !forceEnable && !favoriteId;
@@ -602,7 +647,7 @@
     return btn;
   }
 
-  // page-favorites.js v1.2.1 後半
+  // page-favorites.js v1.3.0 後半
   // ==================== データロード ====================
   async function loadSavedWorlds() {
     try {
@@ -954,8 +999,7 @@
     let fourthBtn;
 
     if (isFavoritesPage) {
-      thirdBtn = document.createElement('div');
-      thirdBtn.style.cssText = `flex: 1; padding: 6px 4px; border: 1px solid transparent; border-radius: 6px; min-width: 0;`;
+      thirdBtn = createWatchlistButton(worldId, card);
       fourthBtn = createDeleteButton(favoriteId, card, false, worldId);
     } else {
       thirdBtn = createFavoritesButton(worldId, card);

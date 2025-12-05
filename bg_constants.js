@@ -1,4 +1,4 @@
-// bg_constants.js v1.2.1
+// bg_constants.js v1.3.0
 
 // ========================================
 // ログレベル設定
@@ -17,7 +17,7 @@ const WARN_LOG = ['DEBUG', 'INFO', 'WARN'].includes(LOG_LEVEL);
 const ERROR_LOG = LOG_LEVEL !== 'NONE';
 
 // モジュール読み込みログ（開発時のみ）
-if (INFO_LOG) console.log('[Constants] Loaded v1.2.1');
+if (INFO_LOG) console.log('[Constants] Loaded v1.3.0');
 
 // ========================================
 // ストレージ制限
@@ -75,7 +75,7 @@ const NOTIFICATION_SETTINGS = {
     THREE_HOURS: 10800000,   // 3時間（ミリ秒）
     TWELVE_HOURS: 43200000   // 12時間（ミリ秒）
   },
-  STARTUP_DELAY: 5000,       // 起動後5秒待機
+  STARTUP_DELAY: 100,        // 起動後100ms待機
   TODAY_HOURS: 24,           // 「今日」判定（24時間以内）
   BADGE_MAX: 99              // バッジ最大表示数
 };

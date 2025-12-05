@@ -1,4 +1,4 @@
-// background.js v1.2.1
+// background.js v1.3.0
 
 // ========================================
 // Module Loading
@@ -71,8 +71,11 @@ async function initializeContextMenus() {
     const settings = result.settings || {};
     const contextMenuEnabled = settings.enableContextMenu !== false;
 
+    const lang = settings.language || 'ja';
+
     logAction('CONTEXT_MENU_INIT', {
       enabled: contextMenuEnabled,
+      language: lang,
       source: 'settings.enableContextMenu'
     });
 
@@ -83,7 +86,7 @@ async function initializeContextMenus() {
 
     chrome.contextMenus.create({
       id: 'vrchat-fav-add-quick',
-      title: 'このワールドを未分類に追加',
+      title: getBgTranslation('contextQuickAdd', lang),
       contexts: ['link'],
       targetUrlPatterns: [
         'https://vrchat.com/home/world/*',
@@ -94,7 +97,7 @@ async function initializeContextMenus() {
 
     chrome.contextMenus.create({
       id: 'vrchat-fav-add-select',
-      title: 'このワールドをフォルダに保存...',
+      title: getBgTranslation('contextFolderSelect', lang),
       contexts: ['link'],
       targetUrlPatterns: [
         'https://vrchat.com/home/world/*',
@@ -130,13 +133,16 @@ function extractWorldIdFromUrl(url) {
 // Case A: Quick Add to Uncategorized
 // ========================================
 async function handleQuickAdd(info, tab) {
+  const { settings } = await chrome.storage.sync.get(['settings']);
+  const lang = settings?.language || 'ja';
+
   try {
     const worldUrl = info.linkUrl || info.pageUrl;
     const worldId = extractWorldIdFromUrl(worldUrl);
 
     if (!worldId) {
       logError('CONTEXT_MENU_INVALID_URL', 'Invalid world URL', { url: worldUrl });
-      showNotification('ワールドIDを取得できませんでした', 'error');
+      showNotification(getBgTranslation('worldIdNotFound', lang), 'error');
       return;
     }
 
@@ -145,7 +151,7 @@ async function handleQuickAdd(info, tab) {
     const details = await getSingleWorldDetailsInternal(worldId);
     if (!details) {
       logError('CONTEXT_MENU_FETCH_FAILED', 'Failed to fetch world details', { worldId });
-      showNotification('ワールド情報の取得に失敗しました', 'error');
+      showNotification(getBgTranslation('worldDetailsFailed', lang), 'error');
       return;
     }
 
@@ -163,7 +169,7 @@ async function handleQuickAdd(info, tab) {
         }
       }
 
-      showNotification(`「${details.name}」は既に「${folderName}」に登録済みです`, 'info');
+      showNotification(getBgTranslation('alreadyRegistered', lang, { name: details.name, folder: folderName }), 'info');
       logAction('CONTEXT_MENU_ALREADY_EXISTS', { worldId, folderId: existing.folderId });
       return;
     }
@@ -174,10 +180,10 @@ async function handleQuickAdd(info, tab) {
     });
 
     if (addResult.success) {
-      showNotification(`「${details.name}」を未分類に追加しました`, 'success');
+      showNotification(getBgTranslation('addedToUncategorized', lang, { name: details.name }), 'success');
       logAction('CONTEXT_MENU_QUICK_ADD_SUCCESS', { worldId });
     } else {
-      const errorMsg = addResult.userMessage || addResult.message || '追加に失敗しました';
+      const errorMsg = addResult.userMessage || addResult.message || getBgTranslation('addFailed', lang);
       showNotification(errorMsg, 'error');
       logError('CONTEXT_MENU_QUICK_ADD_FAILED', addResult.reason || addResult.error, { worldId });
     }
@@ -186,7 +192,7 @@ async function handleQuickAdd(info, tab) {
     logError('CONTEXT_MENU_QUICK_ADD_ERROR', error, {
       worldId: extractWorldIdFromUrl(info.linkUrl || info.pageUrl)
     });
-    showNotification('エラーが発生しました', 'error');
+    showNotification(getBgTranslation('errorOccurred', lang), 'error');
   }
 }
 
@@ -194,13 +200,16 @@ async function handleQuickAdd(info, tab) {
 // Case B: Folder Selection
 // ========================================
 async function handleFolderSelect(info, tab) {
+  const { settings } = await chrome.storage.sync.get(['settings']);
+  const lang = settings?.language || 'ja';
+
   try {
     const worldUrl = info.linkUrl || info.pageUrl;
     const worldId = extractWorldIdFromUrl(worldUrl);
 
     if (!worldId) {
       logError('CONTEXT_MENU_INVALID_URL', 'Invalid world URL', { url: worldUrl });
-      showNotification('ワールドIDを取得できませんでした', 'error');
+      showNotification(getBgTranslation('worldIdNotFound', lang), 'error');
       return;
     }
 
@@ -221,7 +230,7 @@ async function handleFolderSelect(info, tab) {
     logError('CONTEXT_MENU_FOLDER_SELECT_ERROR', error, {
       worldId: extractWorldIdFromUrl(info.linkUrl || info.pageUrl)
     });
-    showNotification('エラーが発生しました', 'error');
+    showNotification(getBgTranslation('errorOccurred', lang), 'error');
   }
 }
 
@@ -251,20 +260,19 @@ function showNotification(message, type = 'info') {
 chrome.runtime.onInstalled.addListener(async () => {
   logAction('EXTENSION_INSTALLED', 'Initializing extension');
   await initializeStorage();
-  await initializeContextMenus();
-  await initWatchNotificationService(); // ← 既にある
+  await initializeContextMenus(); // コンテキストメニューはインストール時に設定
 });
 
 // 【修正】Service Worker起動時にも初期化
 chrome.runtime.onStartup.addListener(async () => {
   logAction('EXTENSION_STARTUP', 'Extension started');
-  await initializeContextMenus();
-  await initWatchNotificationService();
+  // トップレベルの実行に任せるため、ここでは何もしない
 });
 
 // Service Workerが再起動された時の初期化
 (async () => {
   logAction('SERVICE_WORKER_START', 'Service worker activated');
+  await initializeContextMenus(); // Service Worker起動時にコンテキストメニューを再設定
   await initWatchNotificationService();
 })();
 
@@ -277,6 +285,25 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     await handleQuickAdd(info, tab);
   } else if (menuId === 'vrchat-fav-add-select') {
     await handleFolderSelect(info, tab);
+  }
+});
+
+// ========================================
+// Settings Change Listener (Language)
+// ========================================
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  if (namespace === 'sync' && changes.settings) {
+    const newSettings = changes.settings.newValue;
+    const oldSettings = changes.settings.oldValue;
+
+    // 言語設定が変更された場合、コンテキストメニューを再初期化
+    if (newSettings && (!oldSettings || newSettings.language !== oldSettings.language)) {
+      logAction('LANGUAGE_CHANGED', {
+        from: oldSettings?.language,
+        to: newSettings.language
+      });
+      initializeContextMenus();
+    }
   }
 });
 
@@ -846,7 +873,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       (async () => {
         try {
           const result = await manualCheckUpdates();
-          sendResponse(result);
+          sendResponse(result || { success: false, error: 'No response from manualCheckUpdates' });
         } catch (error) {
           logError('MANUAL_CHECK_UPDATES_HANDLER', error);
           sendResponse(createGenericError(error.message));
@@ -877,22 +904,44 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'addToWatchList':
       (async () => {
         try {
-          // addUserToWatchList を呼び出す
-          const progressCallback = (progress) => {
-            chrome.runtime.sendMessage({
-              type: 'watchListProgress',
-              data: progress
-            }).catch(() => {
-              // ウィンドウが閉じられている場合はエラーを無視
+          let userId = request.userId;
+          let authorName = request.authorName;
+
+          // worldIdが渡された場合は、まず作者情報を取得
+          if (request.worldId && !userId) {
+            const worldInfoResponse = await fetchWorldInfo(request.worldId);
+            if (!worldInfoResponse.success || !worldInfoResponse.world.authorId) {
+              sendResponse({
+                success: false,
+                reason: 'author_fetch_failed',
+                userMessage: '作者情報の取得に失敗しました'
+              });
+              return;
+            }
+            userId = worldInfoResponse.world.authorId;
+            authorName = worldInfoResponse.world.authorName;
+          }
+
+          if (!userId) {
+            sendResponse({
+              success: false,
+              reason: 'no_user_id',
+              userMessage: 'ユーザーIDが指定されていません'
             });
-          };
+            return;
+          }
 
-          const result = await addUserToWatchList(
-            request.userId,
-            progressCallback
-          );
+          const result = await addUserToWatchList(userId);
 
-          sendResponse(result);
+          // 成功レスポンスにauthorNameを追加して返す
+          if (result.success) {
+            sendResponse({
+              ...result,
+              authorName: authorName || result.user?.displayName
+            });
+          } else {
+            sendResponse(result);
+          }
         } catch (error) {
           logError('ADD_TO_WATCH_LIST_HANDLER', error);
           sendResponse(createGenericError(error.message));
@@ -909,118 +958,3 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ error: 'Unknown message type' });
   }
 });
-
-// ========================================
-// VRC Action Handler
-// ========================================
-
-function handleVRCAction(request, sendResponse) {
-  const { actionType, windowId } = request;
-
-  if (!actionType || !windowId) {
-    sendResponse({
-      success: false,
-      error: 'Invalid request: actionType and windowId are required'
-    });
-    return;
-  }
-
-  logAction('VRC_ACTION_START', { actionType, windowId });
-
-  activeVRCProcesses.set(windowId, { aborted: false });
-
-  sendResponse({ success: true, message: 'Processing started' });
-
-  startVRCActionAsync(actionType, windowId);
-}
-
-async function startVRCActionAsync(actionType, windowId) {
-  try {
-    const result = await startVRChatSyncProcess(
-      actionType,
-      windowId,
-      (action, payload) => notifyBridgeWindow(windowId, action, payload)
-    );
-
-    if (!isVRCActionAborted(windowId)) {
-      notifyBridgeWindow(windowId, 'VRC_ACTION_COMPLETE', result);
-    }
-  } catch (error) {
-    logError('VRC_ACTION_FAILED', error, { actionType, windowId });
-
-    if (!isVRCActionAborted(windowId)) {
-      notifyBridgeWindow(windowId, 'VRC_ACTION_ERROR', {
-        error: error.message || 'Unknown error'
-      });
-    }
-  } finally {
-    cleanupVRCAction(windowId);
-  }
-}
-
-// ========================================
-// Settings Management
-// ========================================
-
-async function getSettings(sendResponse) {
-  try {
-    const result = await chrome.storage.sync.get(['settings']);
-    sendResponse({
-      success: true,
-      settings: result.settings || {
-        theme: 'dark',
-        language: 'ja',
-        enableVrcSiteIntegration: true,
-        enableContextMenu: true
-      }
-    });
-  } catch (error) {
-    logError('GET_SETTINGS', error);
-    sendResponse(createGenericError(error.message));
-  }
-}
-
-async function saveSettings(settings, sendResponse) {
-  try {
-    await chrome.storage.sync.set({ settings });
-    sendResponse(createSuccessResponse());
-  } catch (error) {
-    logError('SAVE_SETTINGS', error);
-    sendResponse(createGenericError(error.message));
-  }
-}
-
-// ========================================
-// Data Reset
-// ========================================
-
-async function resetAllData(sendResponse) {
-  try {
-    logAction('RESET_ALL_DATA_START', 'Starting data reset');
-
-    const syncKeys = await chrome.storage.sync.get(null);
-    const keysToRemove = [];
-
-    for (const key in syncKeys) {
-      if (key !== 'settings') {
-        keysToRemove.push(key);
-      }
-    }
-
-    if (keysToRemove.length > 0) {
-      await chrome.storage.sync.remove(keysToRemove);
-    }
-
-    await chrome.storage.local.clear();
-
-    logAction('RESET_ALL_DATA_SUCCESS', {
-      syncKeysRemoved: keysToRemove.length,
-      localCleared: true
-    });
-
-    sendResponse(createSuccessResponse());
-  } catch (error) {
-    logError('RESET_ALL_DATA_ERROR', error);
-    sendResponse(createGenericError(error.message));
-  }
-}

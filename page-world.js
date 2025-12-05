@@ -1,10 +1,10 @@
-// page-world.js v1.2.2
+// page-world.js v1.3.0
 
 (function () {
   'use strict';
 
   const { t, initContentScriptSettings, watchSettingsChanges, isExtensionInvalidatedError,
-          DEBUG_LOG } = window.VRCHelpers;
+    DEBUG_LOG } = window.VRCHelpers;
   const { showFolderSelectModal, showNotification } = window.PageHelpersShared;
 
   // ==================== 拡張機能コンテキストチェック ====================
@@ -288,6 +288,26 @@
       <span>${isSaved ? t('deleteFromChrome') : t('saveToChrome')}</span>
     </button>
     
+    <button id="watchlist-btn" style="
+      width: 100%;
+      padding: 10px;
+      background: ${COLORS.PRIMARY.BG};
+      border: 2px solid ${COLORS.PRIMARY.BORDER};
+      border-radius: 4px;
+      color: ${COLORS.PRIMARY.TEXT};
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    ">
+      <span>👤</span>
+      <span>${t('addToWatchlist')}</span>
+    </button>
+    
     <button id="vrc-delete-btn" style="
       width: 100%;
       padding: 10px;
@@ -318,6 +338,7 @@
   function setupButtonEvents(worldId, isFloating = false) {
     setupCopyButton();
     setupExtButton(worldId);
+    setupWatchlistButton(worldId);
     setupVRCDeleteButton(worldId, isFloating);
   }
 
@@ -383,6 +404,23 @@
       } else {
         showExtFolderModal(worldId);
       }
+    };
+  }
+
+  function setupWatchlistButton(worldId) {
+    const watchlistBtn = document.getElementById('watchlist-btn');
+    if (!watchlistBtn) return;
+
+    watchlistBtn.onmouseover = () => {
+      watchlistBtn.style.borderColor = COLORS.PRIMARY.HOVER_BORDER;
+      watchlistBtn.style.background = COLORS.PRIMARY.HOVER_BG;
+    };
+    watchlistBtn.onmouseout = () => {
+      watchlistBtn.style.borderColor = COLORS.PRIMARY.BORDER;
+      watchlistBtn.style.background = COLORS.PRIMARY.BG;
+    };
+    watchlistBtn.onclick = async () => {
+      await addToWatchlist(worldId);
     };
   }
 
@@ -569,6 +607,38 @@
         }
       } else {
         showNotification(t('vrcDeleteNotFavorited'), 'info');
+      }
+    }
+  }
+
+  // ==================== ウォッチリスト管理 ====================
+  async function addToWatchlist(worldId) {
+    try {
+      showNotification(t('fetchingWorldDetails'), 'info');
+
+      // バックグラウンドにウォッチリスト追加を依頼
+      const response = await chrome.runtime.sendMessage({
+        type: 'addToWatchList',
+        worldId: worldId
+      });
+
+      if (response && response.success) {
+        const authorName = response.authorName || 'Unknown';
+        const messageKey = response.isNew ? 'addedToWatchList' : 'alreadyInWatchList';
+        const messageType = response.isNew ? 'success' : 'info';
+        showNotification(
+          t(messageKey, { authorName: authorName }),
+          messageType
+        );
+      } else {
+        showNotification(response.userMessage || t('addToWatchListFailed'), 'error');
+      }
+    } catch (error) {
+      console.error('[World Page] Failed to add to watchlist:', error);
+      if (isExtensionInvalidatedError(error)) {
+        showNotification(t('extInvalidated'), 'info');
+      } else {
+        showNotification(t('error'), 'error');
       }
     }
   }

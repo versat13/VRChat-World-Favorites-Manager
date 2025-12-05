@@ -175,7 +175,7 @@
       color: var(--accent-dark);
     }
 
-    /* 🆕 v1.2.1: ユーザーウォッチバッジ */
+    /* 🆕 v1.3.0: ユーザーウォッチバッジ */
     .user-watch-badge {
       position: absolute;
       top: -6px;
@@ -938,6 +938,22 @@
       opacity: 0.5;
       cursor: not-allowed;
     }
+    
+    /* v1.3.0 インポート/エクスポートボタンのスタイル */
+    .actions-row-2 button {
+      padding: 6px 10px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-normal);
+      border-radius: 6px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 11px;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
 
     /* ==================== スクロールバー ==================== */
     .content::-webkit-scrollbar,
@@ -1358,7 +1374,7 @@
       <div style="display: flex; gap: 8px; align-items: center;">
         <button class="open-window-btn" id="openOptionsBtn">⚙️</button>
         <button class="open-window-btn" id="openUserFavoritesBtn" style="position: relative;">
-          👤 ウォッチリスト
+          <span id="openUserFavoritesBtnText">👤 ウォッチリスト</span>
           <span class="user-watch-badge" id="userWatchBadge" style="display: none;"></span>
         </button>
         <button class="open-window-btn" id="openWindowBtn"><span id="openWindowBtnText">🪟 別ウィンドウで表示</span></button>

@@ -1,4 +1,4 @@
-// bg_user_watch_notification.js v1.2.2
+// bg_user_watch_notification.js v1.3.0
 
 // ============================================================
 // グローバル状態
@@ -14,7 +14,7 @@ let globalNotificationSettings = { worldUpdate: true, newWorld: true };
 
 async function initWatchNotificationService() {
   try {
-    console.log('[WatchNotification] Initializing service...');
+    if (DEBUG_LOG) console.log('[WatchNotification] Initializing service...');
 
     if (DEBUG_LOG) {
       logAction('INIT_WATCH_NOTIFICATION_SERVICE');
@@ -29,15 +29,15 @@ async function initWatchNotificationService() {
       ? new Date(result.lastNotificationCheck)
       : new Date(0);
 
-    console.log('[WatchNotification] Scheduling startup check in 5 seconds...');
+    if (DEBUG_LOG) console.log('[WatchNotification] Scheduling startup check in 5 seconds...');
 
     // 起動時チェック(5秒遅延)
     setTimeout(() => {
-      console.log('[WatchNotification] Running startup check now...');
+      if (DEBUG_LOG) console.log('[WatchNotification] Running startup check now...');
       checkWatchListUpdates(true);
     }, NOTIFICATION_SETTINGS.STARTUP_DELAY);
 
-    console.log('[WatchNotification] Service initialized successfully');
+    if (DEBUG_LOG) console.log('[WatchNotification] Service initialized successfully');
 
     if (DEBUG_LOG) {
       logAction('WATCH_NOTIFICATION_SERVICE_STARTED', {
@@ -76,13 +76,13 @@ async function loadGlobalNotificationSettings() {
 // ============================================================
 
 /**
- * 【v1.2.2 修正】ウォッチリストの更新をチェック
+ * 【v1.3.0 修正】ウォッチリストの更新をチェック
  * - 各ユーザーの最新6件を取得して未読を検出
  * @param {boolean} isStartup - 起動時チェックかどうか
  */
 async function checkWatchListUpdates(isStartup = false) {
   try {
-    console.log('[WatchNotification] Starting check...', { isStartup });
+    if (DEBUG_LOG) console.log('[WatchNotification] Starting check...', { isStartup });
 
     if (DEBUG_LOG) {
       logAction('CHECK_WATCH_LIST_UPDATES', { isStartup });
@@ -94,7 +94,7 @@ async function checkWatchListUpdates(isStartup = false) {
     // ウォッチリスト読み込み
     const watchList = await loadWatchList();
 
-    console.log('[WatchNotification] Watch list loaded:', watchList.length, 'users');
+    if (DEBUG_LOG) console.log('[WatchNotification] Watch list loaded:', watchList.length, 'users');
 
     if (!watchList || watchList.length === 0) {
       await updateBadge(0);
@@ -388,15 +388,17 @@ async function showBrowserNotification(totalCount, todayCount) {
       return;
     }
 
-    let message = `${totalCount}件の新しい更新があります`;
+    const lang = settings.language || 'ja';
+
+    let message = getBgTranslation('notificationMessage', lang, { total: totalCount });
     if (todayCount > 0) {
-      message += `\n(うち今日: ${todayCount}件)`;
+      message += getBgTranslation('notificationMessageToday', lang, { today: todayCount });
     }
 
     await chrome.notifications.create({
       type: 'basic',
       iconUrl: 'icons/icon128.png',
-      title: 'VRChat ワールド更新通知',
+      title: getBgTranslation('notificationTitle', lang),
       message: message,
       priority: 1
     });
@@ -500,6 +502,10 @@ async function clearAllNotifications() {
  */
 async function manualCheckUpdates() {
   try {
+    // 言語設定を取得
+    const result = await chrome.storage.sync.get(['settings']);
+    const lang = result.settings?.language || 'ja';
+
     if (DEBUG_LOG) {
       logAction('MANUAL_CHECK_UPDATES_START');
     }
@@ -511,7 +517,7 @@ async function manualCheckUpdates() {
         success: true,
         hasUpdates: false,
         totalUnread: 0,
-        message: 'ウォッチリストが空です'
+        message: getBgTranslation('watchListEmpty', lang)
       };
     }
 

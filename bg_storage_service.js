@@ -1,7 +1,7 @@
-// bg_storage_service.js v1.2.1
+// bg_storage_service.js v1.3.0
 
 // モジュール読み込みログ（開発時のみ）
-if (INFO_LOG) console.log('[StorageService] Loaded v1.2.1');
+if (INFO_LOG) console.log('[StorageService] Loaded v1.3.0');
 
 // ========================================
 // Rate Limit Management
@@ -17,81 +17,81 @@ class StorageRateLimiter {
 
   async checkAndWait() {
     const now = Date.now();
-    
+
     if (now >= this.resetTime) {
       this.writeCount = 0;
       this.resetTime = now + 60000;
     }
-    
+
     if (this.writeCount >= this.maxWrites) {
       const waitTime = this.resetTime - now;
-      logAction('RATE_LIMIT_WAIT', { 
+      logAction('RATE_LIMIT_WAIT', {
         waitMs: waitTime,
         message: 'Waiting for rate limit reset'
       });
-      
+
       await sleep(waitTime + 1000);
-      
+
       this.writeCount = 0;
       this.resetTime = Date.now() + 60000;
     }
-    
+
     this.writeCount++;
   }
 
   needsWait() {
     const now = Date.now();
-    
+
     if (now >= this.resetTime) {
       this.writeCount = 0;
       this.resetTime = now + 60000;
       return false;
     }
-    
+
     return this.writeCount >= this.maxWrites;
   }
-  
+
   getWaitTime() {
     if (!this.needsWait()) return 0;
     return Math.max(0, this.resetTime - Date.now());
   }
-  
+
   getWaitTimeInSeconds() {
     const waitMs = this.getWaitTime();
     return Math.ceil(waitMs / 1000);
   }
-  
+
   async checkAndWaitWithProgress(progressCallback) {
     if (this.isWaiting) {
       logAction('RATE_LIMIT_ALREADY_WAITING', 'Skipping duplicate wait');
       return;
     }
-    
+
     const now = Date.now();
-    
+
     if (now >= this.resetTime) {
       this.writeCount = 0;
       this.resetTime = now + 60000;
     }
-    
+
     if (this.writeCount >= this.maxWrites) {
       const totalWaitMs = this.resetTime - now + 1000;
       const totalWaitSec = Math.ceil(totalWaitMs / 1000);
-      
+
       try {
         this.isWaiting = true;
-        
-        logAction('RATE_LIMIT_WAIT_WITH_PROGRESS', { 
+
+        logAction('RATE_LIMIT_WAIT_WITH_PROGRESS', {
           totalWaitSeconds: totalWaitSec,
           hasCallback: !!progressCallback
         });
-        
+
         if (progressCallback) {
           logAction('RATE_LIMIT_COUNTDOWN_START', { totalWaitSec });
 
           for (let remaining = totalWaitSec; remaining > 0; remaining--) {
             logAction('RATE_LIMIT_COUNTDOWN_TICK', { remaining });
-            
+
             // 統一型使用: ProgressMessage.rateLimitCountdown()
             progressCallback(
               ProgressMessage.rateLimitCountdown(remaining, totalWaitSec)
@@ -100,7 +100,7 @@ class StorageRateLimiter {
           }
 
           logAction('RATE_LIMIT_COUNTDOWN_FINISHED', 'Sending WAIT_FINISHED message');
-          
+
           // 統一型使用: ProgressMessage.rateLimitFinished()
           progressCallback(
             ProgressMessage.rateLimitFinished()
@@ -109,7 +109,7 @@ class StorageRateLimiter {
           logAction('RATE_LIMIT_NO_CALLBACK', 'Waiting without progress callback');
           await sleep(totalWaitMs);
         }
-        
+
         this.writeCount = 0;
         this.resetTime = Date.now() + 60000;
       } finally {
@@ -117,7 +117,7 @@ class StorageRateLimiter {
         logAction('RATE_LIMIT_WAIT_FINISHED', 'Exiting wait state');
       }
     }
-    
+
     this.writeCount++;
   }
 }
@@ -130,7 +130,7 @@ const rateLimiter = new StorageRateLimiter();
 
 async function safeStorageSet(storageType, data, progressCallback = null) {
   await rateLimiter.checkAndWaitWithProgress(progressCallback);
-  
+
   try {
     if (storageType === 'sync') {
       await chrome.storage.sync.set(data);
@@ -141,28 +141,28 @@ async function safeStorageSet(storageType, data, progressCallback = null) {
   } catch (error) {
     if (error.message && error.message.includes('MAX_WRITE_OPERATIONS_PER_MINUTE')) {
       logError('STORAGE_RATE_LIMIT_CHROME_API_DETECTED', 'Forcing rateLimiter reset');
-      
+
       rateLimiter.writeCount = rateLimiter.maxWrites;
       rateLimiter.resetTime = Date.now() + 60000;
       rateLimiter.isWaiting = false;
-      
+
       logError('STORAGE_RATE_LIMIT_CHROME_API', 'Chrome API rate limit hit unexpectedly');
-      
+
       if (progressCallback) {
         logAction('CHROME_API_RATE_LIMIT_COUNTDOWN_START', 'Starting 60s countdown');
-        
+
         for (let remaining = 60; remaining > 0; remaining--) {
           logAction('CHROME_API_RATE_LIMIT_TICK', { remaining });
-          
+
           // 統一型使用
           progressCallback(
             ProgressMessage.rateLimitCountdown(remaining, 60)
           );
           await sleep(1000);
         }
-        
+
         logAction('CHROME_API_RATE_LIMIT_FINISHED', 'Sending WAIT_FINISHED message');
-        
+
         // 統一型使用
         progressCallback(
           ProgressMessage.rateLimitFinished()
@@ -171,7 +171,7 @@ async function safeStorageSet(storageType, data, progressCallback = null) {
         logAction('CHROME_API_RATE_LIMIT_NO_CALLBACK', 'Waiting 60s without callback');
         await sleep(60000);
       }
-      
+
       return safeStorageSet(storageType, data, progressCallback);
     }
     throw error;
@@ -180,7 +180,7 @@ async function safeStorageSet(storageType, data, progressCallback = null) {
 
 async function safeStorageRemove(storageType, keys, progressCallback = null) {
   await rateLimiter.checkAndWaitWithProgress(progressCallback);
-  
+
   try {
     if (storageType === 'sync') {
       await chrome.storage.sync.remove(keys);
@@ -191,28 +191,28 @@ async function safeStorageRemove(storageType, keys, progressCallback = null) {
   } catch (error) {
     if (error.message && error.message.includes('MAX_WRITE_OPERATIONS_PER_MINUTE')) {
       logError('STORAGE_RATE_LIMIT_CHROME_API_DETECTED', 'Forcing rateLimiter reset');
-      
+
       rateLimiter.writeCount = rateLimiter.maxWrites;
       rateLimiter.resetTime = Date.now() + 60000;
       rateLimiter.isWaiting = false;
-      
+
       logError('STORAGE_RATE_LIMIT_CHROME_API', 'Chrome API rate limit hit unexpectedly');
-      
+
       if (progressCallback) {
         logAction('CHROME_API_RATE_LIMIT_COUNTDOWN_START', 'Starting 60s countdown');
-        
+
         for (let remaining = 60; remaining > 0; remaining--) {
           logAction('CHROME_API_RATE_LIMIT_TICK', { remaining });
-          
+
           // 統一型使用
           progressCallback(
             ProgressMessage.rateLimitCountdown(remaining, 60)
           );
           await sleep(1000);
         }
-        
+
         logAction('CHROME_API_RATE_LIMIT_FINISHED', 'Sending WAIT_FINISHED message');
-        
+
         // 統一型使用
         progressCallback(
           ProgressMessage.rateLimitFinished()
@@ -221,7 +221,7 @@ async function safeStorageRemove(storageType, keys, progressCallback = null) {
         logAction('CHROME_API_RATE_LIMIT_NO_CALLBACK', 'Waiting 60s without callback');
         await sleep(60000);
       }
-      
+
       return safeStorageRemove(storageType, keys, progressCallback);
     }
     throw error;
@@ -313,7 +313,7 @@ async function migrateVrcWorldsToUnifiedStorage() {
       migrationCompleted_v120: true
     });
 
-    logAction('MIGRATION_V120_COMPLETE', { 
+    logAction('MIGRATION_V120_COMPLETE', {
       totalWorlds: vrcWorlds.length,
       detailsSaved: Object.keys(detailsMap).length
     });
@@ -391,23 +391,23 @@ async function saveWorldDetailsBatch(detailsMap, progressCallback = null) {
   }
 
   const chunkCount = Object.keys(chunks).length;
-  logAction('BATCH_SAVE_DETAILS_CHUNKS', { 
+  logAction('BATCH_SAVE_DETAILS_CHUNKS', {
     totalWorlds: Object.keys(detailsMap).length,
-    chunkCount 
+    chunkCount
   });
 
   for (const [chunkKey, chunkData] of Object.entries(chunks)) {
     const local = await chrome.storage.local.get([chunkKey]);
     const existing = local[chunkKey] || {};
-    
+
     await safeStorageSet('local', {
       [chunkKey]: { ...existing, ...chunkData }
     }, progressCallback);
   }
-  
-  logAction('BATCH_SAVE_DETAILS_COMPLETE', { 
+
+  logAction('BATCH_SAVE_DETAILS_COMPLETE', {
     writesPerformed: chunkCount,
-    totalRateLimiterCount: rateLimiter.writeCount 
+    totalRateLimiterCount: rateLimiter.writeCount
   });
 }
 
@@ -454,11 +454,11 @@ async function getAllWorldDetailsInternal() {
 // ========================================
 
 async function saveWorldsChunked(worlds, progressCallback = null) {
-  logAction('SAVE_WORLDS_CHUNKED_START', { 
-    worldCount: worlds.length, 
-    hasCallback: !!progressCallback 
+  logAction('SAVE_WORLDS_CHUNKED_START', {
+    worldCount: worlds.length,
+    hasCallback: !!progressCallback
   });
-  
+
   const chunks = {};
 
   for (let i = 0; i < worlds.length; i += WORLDS_CHUNK_SIZE) {

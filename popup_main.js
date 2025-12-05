@@ -1,4 +1,4 @@
-// popup_main.js v1.2.2
+// popup_main.js v1.3.0
 // イベント処理・UI更新・ページング
 
 // ============================================================
@@ -399,7 +399,7 @@ function setupEventListeners() {
       height: 600
     });
   });
-  
+
   document.getElementById('openUserFavoritesBtn').addEventListener('click', openUserFavoritesWindow);
   document.getElementById('openWindowBtn').addEventListener('click', () => {
     chrome.tabs.create({ url: 'popup.html' });

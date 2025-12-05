@@ -1,4 +1,4 @@
-// popup_core.js v1.2.1
+// popup_core.js v1.3.0
 // グローバル状態管理・設定・翻訳システム
 
 // ============================================================
@@ -12,7 +12,7 @@ const DEBUG_LOG_ERRORS = true; // エラーは常に出力
 // ============================================================
 // バージョン情報
 // ============================================================
-const APP_VERSION = '1.2.1';
+const APP_VERSION = '1.3.0';
 const BUILD_DATE = '2025-01';
 
 // ============================================================
@@ -24,6 +24,7 @@ const translations = {
         headerTitle: '🌎 VRChat お気に入りワールド管理',
         openWindowBtn: '🪟 別ウィンドウで表示',
         openOptionsBtn: '⚙️',
+        openUserFavoritesBtnText: '👤 ウォッチリスト',
 
         // 編集バナー
         editingBannerText: 'リスト編集中',
@@ -118,7 +119,7 @@ const translations = {
         // ウォッチリスト関連
         worldNotFound: 'ワールドが見つかりません',
         addedToWatchList: '{authorName} をウォッチリストに追加しました',
-        alreadyInWatchList: '{authorName} は既にウォッチリスト中です',
+        alreadyInWatchList: '{authorName} は既にリストに登録済みです',
         addToWatchListFailed: 'ウォッチリストへの追加に失敗しました',
         authorInfoFetchFailed: '作者情報の取得に失敗しました',
 
@@ -242,6 +243,7 @@ const translations = {
         headerTitle: '🌎 VRChat World Favorites Manager',
         openWindowBtn: '🪟 Open in New Window',
         openOptionsBtn: '⚙️',
+        openUserFavoritesBtnText: '👤 Watchlist',
 
         // Editing Banner
         editingBannerText: 'Editing List',
@@ -336,7 +338,7 @@ const translations = {
         // Watch list related
         worldNotFound: 'World not found',
         addedToWatchList: 'Added {authorName} to watch list',
-        alreadyInWatchList: '{authorName} is already in watch list',
+        alreadyInWatchList: '{authorName} is already on the list',
         addToWatchListFailed: 'Failed to add to watch list',
         authorInfoFetchFailed: 'Failed to fetch author information',
 
@@ -485,7 +487,7 @@ async function initSettings() {
         console.error('Failed to load settings:', error);
     }
 
-    // 🆕 v1.2.1: ユーザーウォッチバッジ更新
+    // 🆕 v1.3.0: ユーザーウォッチバッジ更新
     await updateUserWatchBadge();
 }
 
@@ -686,7 +688,7 @@ function logError(action, error, data = null) {
 }
 
 // ============================================================
-// 【v1.2.1 追加】ユーザーウォッチバッジ更新
+// 【v1.3.0 追加】ユーザーウォッチバッジ更新
 // ============================================================
 
 /**
@@ -778,7 +780,7 @@ async function updateUserWatchBadge(forceUpdate = false) {
 }
 
 // ============================================================
-// 【v1.2.1 追加】ユーザーフェイバリット画面を開く
+// 【v1.3.0 追加】ユーザーフェイバリット画面を開く
 // ============================================================
 
 /**
