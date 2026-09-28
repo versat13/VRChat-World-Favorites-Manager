@@ -167,7 +167,7 @@ async function batchImportWorlds(request, sendResponse) {
 
         // Private/Deletedチェック
         if (folderId.startsWith('worlds') &&
-          (world.releaseStatus === 'private' || world.releaseStatus === 'deleted')) {
+          (world.releaseStatus === 'private' || world.releaseStatus === 'deleted' || world.releaseStatus === 'accountDeleted')) {
           skippedCount++;
           const error = createPrivateWorldError(world.name);
           errors.push({ id: world.id, reason: error.reason, details: error.message });
@@ -228,7 +228,7 @@ async function batchImportWorlds(request, sendResponse) {
 
       // Private/Deletedチェック
       if (folderId.startsWith('worlds') &&
-        (world.releaseStatus === 'private' || world.releaseStatus === 'deleted')) {
+        (world.releaseStatus === 'private' || world.releaseStatus === 'deleted' || world.releaseStatus === 'accountDeleted')) {
         skippedCount++;
         const error = createPrivateWorldError(world.name);
         errors.push({ id: world.id, reason: error.reason, details: error.message });
@@ -426,7 +426,9 @@ async function getAllWorldDetailsForExport(sendResponse) {
     // 4. 完全なバックアップデータを作成
     const exportData = {
       meta: {
-        version: '1.2.1',
+        // 【v1.4.0修正】'1.2.1'に固定されたまま更新されていなかった。
+        // 拡張機能の実際のバージョンをmanifest.jsonから動的に取得する。
+        version: chrome.runtime.getManifest().version,
         type: 'FULL_BACKUP',
         timestamp: new Date().toISOString()
       },

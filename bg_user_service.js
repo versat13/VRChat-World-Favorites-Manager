@@ -30,7 +30,7 @@ async function fetchWorldInfo(worldId) {
     if (response.status === 404) {
       return {
         success: false,
-        reason: 'world_not_found',
+        reason: ErrorReason.WORLD_NOT_FOUND,
         message: 'World not found',
         userMessage: 'ワールドが見つかりませんでした'
       };
@@ -55,7 +55,9 @@ async function fetchWorldInfo(worldId) {
         id: world.id,
         name: world.name,
         authorId: world.authorId,
-        authorName: world.authorName
+        authorName: world.authorName,
+        releaseStatus: world.releaseStatus,
+        thumbnailImageUrl: world.thumbnailImageUrl
       }
     };
 
@@ -68,6 +70,44 @@ async function fetchWorldInfo(worldId) {
 // ============================================================
 // ユーザー詳細情報取得
 // ============================================================
+
+/**
+ * 【v1.5.0追加】VRChat公式API v1.21.0(2026-09-16)で新設された
+ * GET /profile/{userId} (getPublicProfile) からアイコンURLを取得する。
+ * userIcon/profilePicOverride等が/users/{id}のレスポンスから削除された
+ * ことへの対応。取得に失敗しても致命的エラーにはせず空文字を返す
+ * (呼び出し元のfetchUserInfo自体は成功として扱いたいため)。
+ */
+async function fetchPublicProfileIconUrl(userId) {
+  try {
+    const response = await fetch(`${API_BASE}/profile/${userId}`, {
+      method: 'GET',
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      if (DEBUG_LOG) {
+        logAction('FETCH_PUBLIC_PROFILE_FAILED', { userId, status: response.status });
+      }
+      return '';
+    }
+
+    const profile = await response.json();
+    const iconUrl = profile.iconUrl || profile.userIcon || profile.profileIconUrl || '';
+
+    if (DEBUG_LOG) {
+      logAction('FETCH_PUBLIC_PROFILE_SUCCESS', { userId, hasIcon: !!iconUrl });
+    }
+
+    return iconUrl;
+  } catch (error) {
+    // ネットワークエラー等: フォールバック取得なので静かに諦める
+    if (DEBUG_LOG) {
+      logAction('FETCH_PUBLIC_PROFILE_ERROR', { userId, error: error.message });
+    }
+    return '';
+  }
+}
 
 async function fetchUserInfo(userIdOrName) {
   try {
@@ -94,7 +134,7 @@ async function fetchUserInfo(userIdOrName) {
     if (response.status === 404) {
       return {
         success: false,
-        reason: 'user_not_found',
+        reason: ErrorReason.USER_NOT_FOUND,
         message: 'User not found',
         userMessage: 'ユーザーが見つかりませんでした'
       };
@@ -111,7 +151,7 @@ async function fetchUserInfo(userIdOrName) {
       if (!users || users.length === 0) {
         return {
           success: false,
-          reason: 'user_not_found',
+          reason: ErrorReason.USER_NOT_FOUND,
           message: 'User not found',
           userMessage: 'ユーザーが見つかりませんでした'
         };
@@ -121,12 +161,23 @@ async function fetchUserInfo(userIdOrName) {
       user = await response.json();
     }
 
+    let profilePicUrl = user.iconUrl || user.userIcon || user.currentAvatarThumbnailImageUrl ||
+      user.profilePicOverride || user.currentAvatarImageUrl || '';
+
+    // 【v1.5.0追加】上記のいずれからも取得できなかった場合、
+    // VRChat公式API v1.21.0で新設された GET /profile/{userId}
+    // (getPublicProfile)を追加で呼び、そちらから取得を試みる。
+    // /users/{id}側の互換フィールドが今後完全に無くなった場合の保険。
+    if (!profilePicUrl && user.id) {
+      profilePicUrl = await fetchPublicProfileIconUrl(user.id);
+    }
+
     const userInfo = {
       id: user.id,
       username: user.username,
       displayName: user.displayName,
       bio: user.bio || '',
-      profilePicUrl: user.userIcon || user.currentAvatarThumbnailImageUrl || user.profilePicOverride || '',
+      profilePicUrl,
       tags: user.tags || [],
       status: user.status,
       statusDescription: user.statusDescription,
@@ -257,6 +308,7 @@ async function fetchUserCreatedWorlds(userId, progressCallback = null) {
     if (progressCallback) {
       progressCallback({
         type: 'progress',
+        messageKey: 'progress_fetchingCreatedWorlds',
         message: '作成ワールドを取得中...',
         current: 0,
         total: 100
@@ -324,6 +376,8 @@ async function fetchUserCreatedWorlds(userId, progressCallback = null) {
       if (progressCallback) {
         progressCallback({
           type: 'progress',
+          messageKey: 'progress_fetchingCount',
+          messageParams: { count: allWorlds.length },
           message: `取得中: ${allWorlds.length}件`,
           current: allWorlds.length,
           total: allWorlds.length + 50
@@ -350,6 +404,8 @@ async function fetchUserCreatedWorlds(userId, progressCallback = null) {
     if (progressCallback) {
       progressCallback({
         type: 'complete',
+        messageKey: 'progress_fetchComplete',
+        messageParams: { count: allWorlds.length },
         message: `取得完了: ${allWorlds.length}件`,
         current: allWorlds.length,
         total: allWorlds.length
@@ -368,6 +424,8 @@ async function fetchUserCreatedWorlds(userId, progressCallback = null) {
     if (progressCallback) {
       progressCallback({
         type: 'error',
+        messageKey: 'progress_error',
+        messageParams: { detail: error.message },
         message: error.message
       });
     }
@@ -446,6 +504,8 @@ async function fetchWorldDetailsBatch(worldIds, progressCallback = null) {
       if (progressCallback) {
         progressCallback({
           type: 'progress',
+          messageKey: 'progress_fetchingWorldDetails',
+          messageParams: { current: processed, total: worldIds.length },
           message: `ワールド情報取得中: ${processed}/${worldIds.length}`,
           current: processed,
           total: worldIds.length
@@ -632,12 +692,11 @@ function getValidPublicationDate(world) {
 
 async function loadWatchList() {
   try {
-    const [sync, local] = await Promise.all([
-      chrome.storage.sync.get(['watchListIds']),
+    const [ids, local] = await Promise.all([
+      loadWatchListIds(),
       chrome.storage.local.get(['watchListDetails'])
     ]);
 
-    const ids = sync.watchListIds || [];
     const details = local.watchListDetails || {};
 
     const watchList = ids.map(({ userId, username }) => {
@@ -669,15 +728,92 @@ async function loadWatchList() {
   }
 }
 
+/**
+ * 【v1.3.3変更】ウォッチリストIDをチャンク分割して保存する。
+ * chrome.storage.sync の1キー8KB上限(QUOTA_BYTES_PER_ITEM)を回避するため、
+ * WATCH_LIST_CHUNK_SIZE件ごとに watchListIds_chunk0, chunk1... に分けて保存する。
+ * チャンク数が減った場合(削除でキー数が減少)は、余った古いチャンクも削除する。
+ */
 async function saveWatchListIds(ids) {
   try {
-    await chrome.storage.sync.set({ watchListIds: ids });
+    // 既存のチャンク数を取得し、今回より多ければ余分を削除する対象にする
+    const meta = await chrome.storage.sync.get([WATCH_LIST_CHUNK_COUNT_KEY]);
+    const previousChunkCount = meta[WATCH_LIST_CHUNK_COUNT_KEY] || 0;
+
+    const chunks = [];
+    for (let i = 0; i < ids.length; i += WATCH_LIST_CHUNK_SIZE) {
+      chunks.push(ids.slice(i, i + WATCH_LIST_CHUNK_SIZE));
+    }
+
+    const toSet = {};
+    chunks.forEach((chunk, i) => {
+      toSet[`${WATCH_LIST_CHUNK_KEY_PREFIX}${i}`] = chunk;
+    });
+    toSet[WATCH_LIST_CHUNK_COUNT_KEY] = chunks.length;
+
+    // 旧形式(単一キー watchListIds)が残っていれば併せて空にし、二重管理を防ぐ
+    toSet['watchListIds'] = [];
+
+    // 書き込みは1回にまとめる(MAX_WRITE_OPERATIONS_PER_MINUTE対策)
+    await chrome.storage.sync.set(toSet);
+
+    // 今回のチャンク数より前回の方が多かった場合、余った古いチャンクを削除する
+    if (previousChunkCount > chunks.length) {
+      const keysToRemove = [];
+      for (let i = chunks.length; i < previousChunkCount; i++) {
+        keysToRemove.push(`${WATCH_LIST_CHUNK_KEY_PREFIX}${i}`);
+      }
+      await chrome.storage.sync.remove(keysToRemove);
+    }
+
     if (DEBUG_LOG) {
-      logAction('SAVE_WATCH_LIST_IDS', { count: ids.length });
+      logAction('SAVE_WATCH_LIST_IDS', { count: ids.length, chunks: chunks.length });
     }
   } catch (error) {
     logError('SAVE_WATCH_LIST_IDS_ERROR', error);
     throw error;
+  }
+}
+
+/**
+ * 【v1.3.3追加】チャンク分割されたウォッチリストIDを読み込んで結合する。
+ * 旧形式(単一キー watchListIds に配列がそのまま入っている状態)からの
+ * 自動移行にも対応する。
+ * @returns {Promise<Array<{userId: string, username: string}>>}
+ */
+async function loadWatchListIds() {
+  try {
+    const meta = await chrome.storage.sync.get([WATCH_LIST_CHUNK_COUNT_KEY, 'watchListIds']);
+    const chunkCount = meta[WATCH_LIST_CHUNK_COUNT_KEY] || 0;
+
+    // 【後方互換】チャンク未使用の旧データがまだ残っている場合はそちらを使う
+    if (chunkCount === 0 && Array.isArray(meta.watchListIds) && meta.watchListIds.length > 0) {
+      if (DEBUG_LOG) {
+        logAction('WATCH_LIST_IDS_LEGACY_FORMAT_DETECTED', { count: meta.watchListIds.length });
+      }
+      return meta.watchListIds;
+    }
+
+    if (chunkCount === 0) {
+      return [];
+    }
+
+    const chunkKeys = [];
+    for (let i = 0; i < chunkCount; i++) {
+      chunkKeys.push(`${WATCH_LIST_CHUNK_KEY_PREFIX}${i}`);
+    }
+
+    const chunksData = await chrome.storage.sync.get(chunkKeys);
+    let result = [];
+    for (let i = 0; i < chunkCount; i++) {
+      const chunk = chunksData[`${WATCH_LIST_CHUNK_KEY_PREFIX}${i}`] || [];
+      result = result.concat(chunk);
+    }
+
+    return result;
+  } catch (error) {
+    logError('LOAD_WATCH_LIST_IDS_ERROR', error);
+    return [];
   }
 }
 
@@ -713,9 +849,80 @@ async function deleteUserDetails(userId) {
   }
 }
 
+/**
+ * 【v1.5.0追加】複数ユーザー分のwatchListDetailsを一括削除する。
+ * chrome.storage.localには厳しい書き込み回数制限はないが、
+ * 人数分ループでget/setするのは非効率なため、1回のget/setにまとめる。
+ */
+async function deleteMultipleUserDetails(userIds) {
+  try {
+    const local = await chrome.storage.local.get(['watchListDetails']);
+    const detailsMap = local.watchListDetails || {};
+    userIds.forEach(userId => {
+      delete detailsMap[userId];
+    });
+    await chrome.storage.local.set({ watchListDetails: detailsMap });
+
+    if (DEBUG_LOG) {
+      logAction('DELETE_MULTIPLE_USER_DETAILS', { count: userIds.length });
+    }
+  } catch (error) {
+    logError('DELETE_MULTIPLE_USER_DETAILS_ERROR', error);
+    throw error;
+  }
+}
+
 // ============================================================
 // ユーザー追加・削除
 // ============================================================
+
+/**
+ * 【v1.3.3追加】軽量インポート用: APIを一切叩かず、複数IDをまとめて
+ * ウォッチリストに登録する。
+ *
+ * 【重要】1件ずつ chrome.storage.sync.set() を呼ぶと、120回/分という
+ * 書き込み回数の上限(MAX_WRITE_OPERATIONS_PER_MINUTE)にすぐ到達し、
+ * 大量インポート時に後半が軒並み失敗する。そのため、複数IDをまとめて
+ * 受け取り、書き込みを1回にまとめることで上限を回避する。
+ *
+ * 詳細情報(表示名・アイコン・ワールド一覧)は空のまま保存され、
+ * 後で全件更新または新着チェックを実行した際に埋まる。
+ * @param {string[]} userIds - 登録するユーザーIDの配列(usr_で始まる)
+ * @returns {{success: boolean, addedCount: number, skippedCount: number}}
+ */
+async function addUserIdsBulk(userIds) {
+  try {
+    const existingIds = await loadWatchListIds();
+    const existingUserIdSet = new Set(existingIds.map(u => u.userId));
+
+    let addedCount = 0;
+    let skippedCount = 0;
+
+    for (const userId of userIds) {
+      if (existingUserIdSet.has(userId)) {
+        skippedCount++;
+        continue;
+      }
+      existingIds.push({ userId, username: userId });
+      existingUserIdSet.add(userId);
+      addedCount++;
+    }
+
+    // 書き込みは1回だけ行う(MAX_WRITE_OPERATIONS_PER_MINUTE対策)
+    if (addedCount > 0) {
+      await saveWatchListIds(existingIds);
+    }
+
+    if (DEBUG_LOG) {
+      logAction('ADD_USER_IDS_BULK', { addedCount, skippedCount, total: userIds.length });
+    }
+
+    return { success: true, addedCount, skippedCount };
+  } catch (error) {
+    logError('ADD_USER_IDS_BULK_ERROR', error, { count: userIds.length });
+    return createGenericError(error.message);
+  }
+}
 
 async function addUserToWatchList(userId, progressCallback = null) {
   try {
@@ -723,14 +930,14 @@ async function addUserToWatchList(userId, progressCallback = null) {
       logAction('ADD_USER_TO_WATCH_LIST', { userId });
     }
 
-    const sync = await chrome.storage.sync.get(['watchListIds']);
-    const existingIds = sync.watchListIds || [];
+    const existingIds = await loadWatchListIds();
 
     const alreadyExists = existingIds.some(u => u.userId === userId);
 
     if (progressCallback) {
       progressCallback({
         type: 'progress',
+        messageKey: 'progress_fetchingUserInfo',
         message: 'ユーザー情報を取得中...',
         current: 0,
         total: 100
@@ -747,6 +954,7 @@ async function addUserToWatchList(userId, progressCallback = null) {
     if (progressCallback) {
       progressCallback({
         type: 'progress',
+        messageKey: 'progress_fetchingWorldList',
         message: 'ワールド一覧を取得中...',
         current: 50,
         total: 100
@@ -812,6 +1020,7 @@ async function addUserToWatchList(userId, progressCallback = null) {
     if (progressCallback) {
       progressCallback({
         type: 'complete',
+        messageKey: alreadyExists ? 'progress_updated' : 'progress_added',
         message: alreadyExists ? '情報を更新しました' : '追加完了',
         current: 100,
         total: 100
@@ -840,6 +1049,8 @@ async function addUserToWatchList(userId, progressCallback = null) {
     if (progressCallback) {
       progressCallback({
         type: 'error',
+        messageKey: 'progress_error',
+        messageParams: { detail: error.message },
         message: error.message
       });
     }
@@ -864,14 +1075,13 @@ async function removeUserFromWatchList(userId) {
       logAction('REMOVE_USER_FROM_WATCH_LIST', { userId });
     }
 
-    const sync = await chrome.storage.sync.get(['watchListIds']);
-    const existingIds = sync.watchListIds || [];
+    const existingIds = await loadWatchListIds();
     const filteredIds = existingIds.filter(u => u.userId !== userId);
 
     if (filteredIds.length === existingIds.length) {
       return {
         success: false,
-        reason: 'not_found',
+        reason: ErrorReason.NOT_FOUND,
         message: 'User not found in watch list',
         userMessage: 'ユーザーが見つかりません'
       };
@@ -892,6 +1102,51 @@ async function removeUserFromWatchList(userId) {
   }
 }
 
+/**
+ * 【v1.5.0追加】複数ユーザーをウォッチリストから一括削除する。
+ * removeUserFromWatchListを人数分ループ呼び出しすると、その都度
+ * chrome.storage.sync.set(saveWatchListIds)が発生し、
+ * MAX_WRITE_OPERATIONS_PER_MINUTE(1分あたり120回)にすぐ抵触してしまう。
+ * ここではメモリ上で全員分を一括除外してから、保存はまとめて1回だけ行う。
+ */
+async function removeMultipleUsersFromWatchList(userIds) {
+  try {
+    if (DEBUG_LOG) {
+      logAction('REMOVE_MULTIPLE_USERS_FROM_WATCH_LIST', { count: userIds.length });
+    }
+
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return {
+        success: false,
+        reason: ErrorReason.INVALID_DATA,
+        message: 'No user IDs provided',
+        userMessage: '削除対象が指定されていません'
+      };
+    }
+
+    const targetIdSet = new Set(userIds);
+    const existingIds = await loadWatchListIds();
+    const filteredIds = existingIds.filter(u => !targetIdSet.has(u.userId));
+    const removedCount = existingIds.length - filteredIds.length;
+
+    // storage.sync書き込みはこの1回のみ
+    await saveWatchListIds(filteredIds);
+
+    // storage.local(watchListDetails)側も同様にまとめて1回で更新する
+    await deleteMultipleUserDetails(userIds);
+
+    if (DEBUG_LOG) {
+      logAction('REMOVE_MULTIPLE_USERS_SUCCESS', { requested: userIds.length, removed: removedCount });
+    }
+
+    return createSuccessResponse({ removedCount });
+
+  } catch (error) {
+    logError('REMOVE_MULTIPLE_USERS_FROM_WATCH_LIST_ERROR', error);
+    return createGenericError(error.message);
+  }
+}
+
 async function refreshUserWorlds(userId, progressCallback = null) {
   try {
     if (DEBUG_LOG) {
@@ -900,20 +1155,36 @@ async function refreshUserWorlds(userId, progressCallback = null) {
 
     const local = await chrome.storage.local.get(['watchListDetails']);
     const detailsMap = local.watchListDetails || {};
-    const existingDetails = detailsMap[userId];
+    let existingDetails = detailsMap[userId];
 
+    // 【v1.3.3追加】軽量インポートでIDだけ登録されたユーザーは
+    // watchListDetailsにレコードがまだ無いため、ここではプレースホルダーを
+    // 用意するだけに留める(fetchUserInfoはまだ呼ばない)。
+    const now = new Date().toISOString();
     if (!existingDetails) {
-      return {
-        success: false,
-        reason: 'not_found',
-        message: 'User not found in watch list',
-        userMessage: 'ユーザーが見つかりません'
+      existingDetails = {
+        displayName: userId,
+        profilePicUrl: '',
+        addedAt: now,
+        lastCheckedAt: now,
+        lastUpdatedAt: now,
+        latestPublicationDate: '',
+        notificationEnabled: true,
+        totalWorldCount: 0,
+        worlds: []
       };
     }
+
+    // 【v1.3.3修正】表示名・アイコンがまだプレースホルダーのまま(軽量インポート
+    // 直後で未取得)の場合は、ワールド件数に関わらずfetchUserInfoで取得する。
+    // 以前は「ワールドが0件の場合のみ」に限定していたため、ワールドを持つ
+    // ユーザーの表示名・アイコンがいつまでも更新されないバグがあった。
+    const needsUserInfo = existingDetails.displayName === userId || !existingDetails.profilePicUrl;
 
     if (progressCallback) {
       progressCallback({
         type: 'progress',
+        messageKey: 'progress_fetchingWorldList',
         message: 'ワールド一覧を取得中...',
         current: 0,
         total: 100
@@ -927,7 +1198,20 @@ async function refreshUserWorlds(userId, progressCallback = null) {
     }
 
     const worlds = worldsResult.worlds;
-    const now = new Date().toISOString();
+
+    // 【v1.3.3修正】表示名・アイコンが未取得(needsUserInfo)、
+    // またはワールドが1件も無い(実在確認が必要)場合にfetchUserInfoを呼ぶ。
+    if (needsUserInfo || worlds.length === 0) {
+      const userInfoResult = await fetchUserInfo(userId);
+      if (!userInfoResult.success) {
+        // user_not_found等: ユーザーが実在しない。呼び出し元が自動削除の判断をする。
+        return userInfoResult;
+      }
+      // 表示名・アイコンを更新する。
+      existingDetails.displayName = userInfoResult.user.displayName;
+      existingDetails.profilePicUrl = userInfoResult.user.profilePicUrl || '';
+    }
+
     const lastUpdatedAt = worlds.length > 0 ? worlds[0].updatedAt : now;
 
     const sortedByPublication = [...worlds].sort((a, b) =>
@@ -968,6 +1252,8 @@ async function refreshUserWorlds(userId, progressCallback = null) {
     if (progressCallback) {
       progressCallback({
         type: 'error',
+        messageKey: 'progress_error',
+        messageParams: { detail: error.message },
         message: error.message
       });
     }
@@ -989,7 +1275,7 @@ async function markUserAsChecked(userId) {
     if (!existingDetails) {
       return {
         success: false,
-        reason: 'not_found',
+        reason: ErrorReason.NOT_FOUND,
         message: 'User not found in watch list',
         userMessage: 'ユーザーが見つかりません'
       };
@@ -1023,7 +1309,7 @@ async function toggleUserNotification(userId, enabled) {
     if (!existingDetails) {
       return {
         success: false,
-        reason: 'not_found',
+        reason: ErrorReason.NOT_FOUND,
         message: 'User not found in watch list',
         userMessage: 'ユーザーが見つかりません'
       };
@@ -1075,7 +1361,7 @@ async function updateGlobalNotificationSetting(setting, enabled) {
 
 async function exportWatchListData() {
   try {
-    const sync = await chrome.storage.sync.get(['watchListIds']);
+    const watchListIds = await loadWatchListIds();
 
     const exportData = {
       meta: {
@@ -1083,7 +1369,7 @@ async function exportWatchListData() {
         type: 'WATCH_LIST_BACKUP',
         timestamp: new Date().toISOString()
       },
-      watchListIds: sync.watchListIds || []
+      watchListIds: watchListIds
     };
 
     if (DEBUG_LOG) {
@@ -1107,14 +1393,13 @@ async function importWatchListData(watchListIds) {
     if (!Array.isArray(watchListIds)) {
       return {
         success: false,
-        reason: 'invalid_data',
+        reason: ErrorReason.INVALID_DATA,
         message: 'Invalid watch list data',
         userMessage: '無効なデータ形式です'
       };
     }
 
-    const sync = await chrome.storage.sync.get(['watchListIds']);
-    const existingIds = sync.watchListIds || [];
+    const existingIds = await loadWatchListIds();
     const existingUserIds = new Set(existingIds.map(u => u.userId));
 
     const newUsers = watchListIds.filter(u => !existingUserIds.has(u.userId));
@@ -1164,8 +1449,8 @@ async function getWatchListCount() {
       logAction('GET_WATCH_LIST_COUNT');
     }
 
-    const sync = await chrome.storage.sync.get(['watchListIds']);
-    const count = (sync.watchListIds || []).length;
+    const ids = await loadWatchListIds();
+    const count = ids.length;
 
     if (DEBUG_LOG) {
       logAction('GET_WATCH_LIST_COUNT_SUCCESS', { count });

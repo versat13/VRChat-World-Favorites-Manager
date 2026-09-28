@@ -1,16 +1,17 @@
-// page-cs-helpers.js v1.2.2
-// Content Script 共通ヘルパー関数(page-favorites.js, page-world.js で使用)
-// v1.2.2: フォルダモーダル・通知をpage-helpers-shared.jsに移動
+// page-cs-helpers.js v1.5.0
+// Content Script 共通ヘルパー関数(page-favorites.js, page-world.js, page-vrclist.js, page-vrclist-list.js で使用)
 
 (function (window) {
   'use strict';
 
-  const DEBUG_LOG = false; // 本番=false, 開発=true
+  const DEBUG_LOG = true; // WIPデバッグビルド: 本番リリース時はfalseに戻すこと
 
   // ==================== 翻訳データ ====================
   const translations = {
     ja: {
       extInvalidated: '拡張機能が更新されました。ページを再読み込みしてください',
+      authBannerMessage: 'VRChatにログインしていないか、セッションが切れています。再読み込みして再度お試しください。',
+      authBannerReloadBtn: '再読み込み',
       copyLinkBtn: 'リンク',
       chromeSaveBtn: 'Chrome保存',
       favoritesBtn: 'Favorites',
@@ -32,6 +33,20 @@
       deleteSuccess: 'お気に入りから削除しました',
       vrcDeleteFailed: 'お気に入り削除に失敗しました: {error}',
       addToFavorites: 'お気に入りに追加しました',
+      addToFavoritesBtn: 'お気に入りに追加',
+      vrcFavRegisterBtn: 'VRChat公式に登録',
+      vrclistCopyLinkShort: 'リンクをコピー',
+      vrclistSaveShort: 'Chromeに保存',
+      vrclistDeleteShort: 'Chromeから削除',
+      vrclistFavRegisterShort: 'VRChat公式に登録',
+      vrclistWatchlistShort: 'ウォッチリスト',
+      vrcFavRemoveBtn: 'VRChatお気に入り解除',
+      clickAgainToRemove: '⚠️ 解除',
+      vrcFavRemoveShort: '解除',
+      vrcFavRemoveListLabel: 'お気に入り解除',
+      vrcFavRegisteredBtn: '✓ 登録済み',
+      vrcFolderFull: 'このフォルダは上限に達しているため登録できませんでした。別のフォルダを選んでください。',
+      vrcAddFailedAmbiguous: '登録に失敗しました。フォルダの上限に達しているか、既に登録済みの可能性があります。',
       addToFavoritesFailed: 'お気に入り追加に失敗しました: {error}',
       selectVRCFolder: '🗂 VRChatフォルダに追加',
       selectVRCFolderDesc: '「{name}」を追加するVRChatフォルダを選択してください',
@@ -65,10 +80,15 @@
       addToWatchListFailed: 'ウォッチリストへの追加に失敗しました',
       authorInfoFetchFailed: '作者情報の取得に失敗しました',
       fetchingWorldDetails: 'ワールド情報を取得中...',
-      worldDetailsFailed: 'ワールド情報の取得に失敗しました'
+      worldDetailsFailed: 'ワールド情報の取得に失敗しました',
+      vrclistLoadingFavState: '読み込み中...',
+      extensionPanelHeader: '🧩 ワールドをお気に入り登録（拡張機能）',
+      vrcNotLoggedIn: 'VRChat未ログイン'
     },
     en: {
       extInvalidated: 'Extension context invalidated. Please reload the page.',
+      authBannerMessage: 'You are not logged in to VRChat, or your session has expired. Please reload the page and try again.',
+      authBannerReloadBtn: 'Reload',
       copyLinkBtn: 'Link',
       chromeSaveBtn: 'Chrome Save',
       favoritesBtn: 'Favorites',
@@ -90,6 +110,20 @@
       deleteSuccess: 'Removed from favorites',
       vrcDeleteFailed: 'Failed to remove from favorites: {error}',
       addToFavorites: 'Added to favorites',
+      addToFavoritesBtn: 'Add to Favorites',
+      vrcFavRegisterBtn: 'Add to VRChat',
+      vrclistCopyLinkShort: 'Copy Link',
+      vrclistSaveShort: 'Save to Chrome',
+      vrclistDeleteShort: 'Remove from Chrome',
+      vrclistFavRegisterShort: 'Add to VRChat',
+      vrclistWatchlistShort: 'Watchlist',
+      vrcFavRemoveBtn: 'Remove VRChat Favorite',
+      clickAgainToRemove: '⚠️ Remove',
+      vrcFavRemoveShort: 'Remove',
+      vrcFavRemoveListLabel: 'Remove Favorite',
+      vrcFavRegisteredBtn: '✓ Registered',
+      vrcFolderFull: 'This folder is full and the world could not be added. Please choose a different folder.',
+      vrcAddFailedAmbiguous: 'Failed to add. The folder may be full, or the world may already be favorited.',
       addToFavoritesFailed: 'Failed to add to favorites: {error}',
       selectVRCFolder: '🗂 Add to VRChat Folder',
       selectVRCFolderDesc: 'Select VRChat folder to add "{name}"',
@@ -123,7 +157,10 @@
       addToWatchListFailed: 'Failed to add to watch list',
       authorInfoFetchFailed: 'Failed to fetch author information',
       fetchingWorldDetails: 'Fetching world details...',
-      worldDetailsFailed: 'Failed to fetch world details'
+      worldDetailsFailed: 'Failed to fetch world details',
+      vrclistLoadingFavState: 'Loading...',
+      extensionPanelHeader: '🧩 Favorite this world (Extension)',
+      vrcNotLoggedIn: 'VRChat: Not logged in'
     }
   };
 
@@ -205,7 +242,7 @@
   };
 
   if (DEBUG_LOG) {
-    console.log('[CS-Helpers] Loaded v1.2.2');
+    console.log('[CS-Helpers] Loaded v1.5.0');
   }
 
 })(window);

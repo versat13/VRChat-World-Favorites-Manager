@@ -7,6 +7,79 @@
     DEBUG_LOG } = window.VRCHelpers;
   const { showFolderSelectModal, showNotification } = window.PageHelpersShared;
 
+  /**
+   * 【v1.4.0追加】ページを開いたまま未ログイン状態になった場合の
+   * 永続バナー。showNotification(3秒で自動的に消えるトースト通知)は
+   * 「ログインし直して操作をやり直してください」という、ユーザーが
+   * 行動を起こすべき重要なメッセージには不向きなため、閉じるまで
+   * 残り続ける専用のバナーを画面右上に表示する。
+   * 一度表示している間は再度呼んでも何もしない(多重表示防止)。
+   */
+  function showPersistentAuthBanner() {
+    if (document.getElementById('vrc-resolver-auth-banner')) return;
+
+    const banner = document.createElement('div');
+    banner.id = 'vrc-resolver-auth-banner';
+    banner.style.cssText = `
+      position: fixed;
+      top: 80px;
+      right: 20px;
+      z-index: 10003;
+      background: rgba(255, 87, 103, 0.95);
+      color: white;
+      padding: 14px 16px;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+      font-size: 13px;
+      font-weight: 600;
+      max-width: 300px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    `;
+
+    const text = document.createElement('div');
+    text.textContent = t('authBannerMessage');
+    banner.appendChild(text);
+
+    const buttonRow = document.createElement('div');
+    buttonRow.style.cssText = 'display: flex; gap: 8px;';
+
+    const reloadBtn = document.createElement('button');
+    reloadBtn.textContent = t('authBannerReloadBtn');
+    reloadBtn.style.cssText = `
+      flex: 1;
+      padding: 6px 10px;
+      background: white;
+      color: #d63847;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    `;
+    reloadBtn.onclick = () => window.location.reload();
+
+    const dismissBtn = document.createElement('button');
+    dismissBtn.textContent = '✕';
+    dismissBtn.style.cssText = `
+      padding: 6px 10px;
+      background: transparent;
+      color: white;
+      border: 1px solid rgba(255,255,255,0.6);
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    `;
+    dismissBtn.onclick = () => banner.remove();
+
+    buttonRow.appendChild(reloadBtn);
+    buttonRow.appendChild(dismissBtn);
+    banner.appendChild(buttonRow);
+
+    document.body.appendChild(banner);
+  }
+
   // ==================== 拡張機能コンテキストチェック ====================
   function checkExtensionContext() {
     try {
@@ -107,6 +180,11 @@
   let PROCESSED_CARDS = new WeakSet();
   let SAVED_WORLD_IDS = new Set();
   let VRC_FOLDERS = [];
+  // 【v1.4.0追加】ページを開いたまま未ログイン(またはネットワーク断)に
+  // なった場合、お気に入り一覧の全カード分だけ fetchWorldInfo が
+  // 次々に失敗してコンソールにエラーが積み上がるのを防ぐためのフラグ。
+  // 一度検知したら一定時間は新規のワールド情報取得を抑制する。
+  let isNetworkSuspended = false;
   let EXT_FOLDERS = [];
   let currentUrl = window.location.href;
   let isLoadingFavorites = false;
@@ -746,26 +824,7 @@
         vrcWorlds = response.vrcWorlds;
 
         if (DEBUG_LOG) {
-          console.log('[Favorites] ✅ Loaded vrcWorlds:', vrcWorlds.length);
-
-          const withFavId = vrcWorlds.filter(w => w.favoriteRecordId);
-          const withoutFavId = vrcWorlds.filter(w => !w.favoriteRecordId);
-
-          console.log('[Favorites] 📊 Statistics:', {
-            total: vrcWorlds.length,
-            withFavoriteRecordId: withFavId.length,
-            withoutFavoriteRecordId: withoutFavId.length
-          });
-
-          if (withoutFavId.length > 0) {
-            console.warn('[Favorites] ⚠️ Some worlds missing favoriteRecordId');
-            console.table(withoutFavId.slice(0, 5).map(w => ({
-              id: w.id,
-              folderId: w.folderId,
-              hasFavoriteRecordId: !!w.favoriteRecordId
-            })));
-            console.log('[Favorites] 💡 Tip: favoriteRecordId will be populated when favorites are added via this interface');
-          }
+          console.log('[Favorites] Loaded vrcWorlds:', vrcWorlds.length);
         }
 
         if (vrcWorlds.length > 0) {
@@ -871,8 +930,137 @@
     });
   }
 
+  const RESOLVING_FAVORITE_IDS = new Set();
+
+  /**
+   * favoriteId(お気に入りレコードのID、fvrt_xxx形式)から worldId を解決する。
+   * VRChat公式サイトのお気に入り一覧のレンダリング方式が変わり、
+   * DOM上に worldId の手がかりが一切残らないケース(非公開・削除済み
+   * ワールドが "???" のまま表示される)への保険。
+   * favoriteId自体はお気に入りを解除しない限り変わらず安定しているため、
+   * GET /favorites/{favoriteId} で直接worldIdを引ける。
+   * worldIdが解決できるまでカードは PROCESSED_CARDS に加えていないため、
+   * 解決後は addControlButtons を再実行してボタン一式を作り直す。
+   */
+  async function resolveWorldIdFromFavorite(favoriteId, card) {
+    if (RESOLVING_FAVORITE_IDS.has(favoriteId)) return;
+    RESOLVING_FAVORITE_IDS.add(favoriteId);
+
+    try {
+      const res = await origFetch(`${API_BASE}/favorites/${favoriteId}`, { credentials: 'include' });
+      if (!res.ok) {
+        if (DEBUG_LOG) {
+          console.warn(`[Favorites] Failed to resolve favoriteId ${favoriteId}: HTTP ${res.status}`);
+        }
+        return;
+      }
+
+      const fav = await res.json();
+      if (fav?.favoriteId && fav.favoriteId.startsWith('wrld_')) {
+        FAVORITE_ID_TO_WORLD_ID.set(favoriteId, fav.favoriteId);
+
+        if (card && card.isConnected && !PROCESSED_CARDS.has(card)) {
+          addControlButtons(card);
+        }
+
+        if (!RESOLVED_WORLDS.has(fav.favoriteId)) {
+          await fetchWorldInfo(fav.favoriteId);
+        } else {
+          updateAllMatchingCards(fav.favoriteId, RESOLVED_WORLDS.get(fav.favoriteId));
+        }
+      }
+    } catch (error) {
+      if (DEBUG_LOG) {
+        console.warn(`[Favorites] Error resolving favoriteId ${favoriteId}:`, error.message);
+      }
+    } finally {
+      RESOLVING_FAVORITE_IDS.delete(favoriteId);
+    }
+  }
+
+  /**
+   * 【v1.4.0追加】URLアクセスによる二次判定。
+   * API(/api/1/worlds/{worldId})だけでは「非公開」と「削除」を確実に
+   * 区別できないため、ワールド詳細ページ自体(/home/world/wrld_xxx)に
+   *直接アクセスし、そのHTMLに非公開ワールド特有の文言が含まれるかで
+   * 判定する。VRChat公式サイトは非公開ワールドのページに
+   * 「This world is private and only visible via direct links」という
+   * 趣旨のメッセージを表示するため、これを手がかりにする。
+   * この判定ができない場合は null を返し、呼び出し元は既存のAPI判定
+   * (403/404)にフォールバックする。
+   * @param {string} worldId
+   * @returns {Promise<'private'|null>}
+   */
+  /**
+   * 【v1.4.0追加】URLアクセスによる直接情報取得。
+   * API(/api/1/worlds/{worldId})は非公開・削除ワールドに対して403/404を
+   * 返しレスポンスボディに情報を含まないが、ワールド詳細ページ自体
+   * (/home/world/wrld_xxx)はDiscord等でリンクを共有した際に
+   * サムネイル・タイトル付きのプレビューが表示されることからも分かる
+   * 通り、<head>内にog:title/og:imageのOGPタグをサーバー側で埋め込んで
+   * いる可能性が高い。これをfetchで直接取得し、JavaScriptを実行せずに
+   * 名前・サムネイルURLを得る。
+   * 非公開ワールドの場合はページ本文に非公開である旨のメッセージ
+   * (「This world is private and only visible via direct links」)が
+   * 含まれるため、これも合わせて判定する。
+   * @param {string} worldId
+   * @returns {Promise<{isPrivate: boolean, title: string|null, imageUrl: string|null}>}
+   */
+  async function fetchWorldPageInfo(worldId) {
+    try {
+      const pageRes = await origFetch(`https://vrchat.com/home/world/${worldId}`, { credentials: 'include' });
+      if (!pageRes.ok) {
+        return { isPrivate: false, title: null, imageUrl: null };
+      }
+
+      const html = await pageRes.text();
+
+      const isPrivate = /private[^<]{0,40}(only visible|direct link)|only visible via direct links/i.test(html);
+
+      // og:title / og:image を抽出。属性の順序に加え、VRChat公式サイトが
+      // 属性値をクォートなしで出力するケース(data-scrollkey等で確認済み)
+      // にも対応する。
+      const titleMatch =
+        html.match(/<meta[^>]*property=["']?og:title["']?[^>]*content=(?:"([^"]*)"|'([^']*)'|([^\s>]*))/i) ||
+        html.match(/<meta[^>]*content=(?:"([^"]*)"|'([^']*)'|([^\s>]*))[^>]*property=["']?og:title["']?/i);
+      const imageMatch =
+        html.match(/<meta[^>]*property=["']?og:image["']?[^>]*content=(?:"([^"]*)"|'([^']*)'|([^\s>]*))/i) ||
+        html.match(/<meta[^>]*content=(?:"([^"]*)"|'([^']*)'|([^\s>]*))[^>]*property=["']?og:image["']?/i);
+
+      const extractMatchValue = (m) => m ? (m[1] ?? m[2] ?? m[3] ?? null) : null;
+      const title = titleMatch ? decodeHtmlEntities(extractMatchValue(titleMatch)) : null;
+      const imageUrl = extractMatchValue(imageMatch);
+
+      if (DEBUG_LOG) {
+        console.log(`[Favorites] 🔍 World page info for ${worldId}: private=${isPrivate}, title="${title}", image=${imageUrl ? 'found' : 'none'}`);
+      }
+
+      return { isPrivate, title, imageUrl };
+    } catch (error) {
+      if (DEBUG_LOG) {
+        console.warn(`[Favorites] World page fetch failed for ${worldId}:`, error.message);
+      }
+      return { isPrivate: false, title: null, imageUrl: null };
+    }
+  }
+
+  /**
+   * HTMLエンティティをデコードする(og:titleに &amp; 等が含まれるケースに対応)
+   */
+  function decodeHtmlEntities(str) {
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = str;
+    return textarea.value;
+  }
+
   async function fetchWorldInfo(worldId) {
     if (RESOLVED_WORLDS.has(worldId)) return;
+
+    // 【v1.4.0追加】直前にネットワークエラー(未ログイン化やセッション
+    // 切れの可能性が高い)を検知している間は、同じ理由で失敗するであろう
+    // 新規リクエストを送らず静かにスキップする。バナーのボタンで
+    // ページを再読み込みすれば再開できる。
+    if (isNetworkSuspended) return;
 
     if (DEBUG_LOG) {
       console.log(`[Favorites] 🌐 Fetching world info for: ${worldId}`);
@@ -891,16 +1079,74 @@
         if (DEBUG_LOG) {
           console.log(`[Favorites] ✅ Successfully fetched ${worldId}`);
         }
-      } else if (res.status === 404) {
-        if (DEBUG_LOG) {
-          console.log(`[Favorites] 🗑️ World ${worldId} is deleted (404)`);
+      } else if (res.status === 404 || res.status === 403) {
+        // 【v1.4.0変更】APIのステータスコードだけで確定させず、まず
+        // ワールド詳細ページ自体に直接アクセスする。VRChat公式サイトは
+        // Discord等での共有プレビュー用に og:title/og:image をサーバー
+        // 側で<head>に埋め込んでいるため、これをJavaScriptを実行せずに
+        // fetchで取得でき、名前・サムネイルを補完できる。
+        // 同時にページ本文に「非公開」の専用メッセージが含まれるかも
+        // 確認し、削除/非公開/アカウント削除を判定する。
+        const pageInfo = await fetchWorldPageInfo(worldId);
+
+        if (pageInfo.isPrivate) {
+          if (DEBUG_LOG) {
+            console.log(`[Favorites] 🔒 World ${worldId} confirmed private via world page`);
+          }
+          data = {
+            id: worldId,
+            name: pageInfo.title || '[Private]',
+            private: true,
+            pageThumbnailUrl: pageInfo.imageUrl
+          };
+        } else if (res.status === 404) {
+          if (DEBUG_LOG) {
+            console.log(`[Favorites] 🗑️ World ${worldId} is deleted (404, no private notice on page)`);
+          }
+          data = {
+            id: worldId,
+            name: pageInfo.title || '[Deleted]',
+            deleted: true,
+            pageThumbnailUrl: pageInfo.imageUrl
+          };
+        } else {
+          // 403だがワールドページにも非公開の専用メッセージが出ない場合。
+          // エラーメッセージ本文にアカウント関連の語が含まれるかも確認する。
+          let errorMessage = '';
+          try {
+            const errorBody = await res.json();
+            errorMessage = errorBody?.error?.message || '';
+          } catch (e) {
+            // JSONでない場合は無視
+          }
+
+          const looksLikeAccountIssue = /account|user|author|banned|terminated|suspended/i.test(errorMessage);
+
+          if (looksLikeAccountIssue) {
+            if (DEBUG_LOG) {
+              console.log(`[Favorites] 👤 World ${worldId} author account issue (403): ${errorMessage}`);
+            }
+            data = {
+              id: worldId,
+              name: pageInfo.title || '[Author Account Deleted]',
+              accountDeleted: true,
+              pageThumbnailUrl: pageInfo.imageUrl
+            };
+          } else {
+            // ワールドページでも非公開と確認できず、エラーメッセージからも
+            // アカウント問題と断定できない場合は、ワールド自体が削除された
+            // (hidden)可能性が高いと判断する。
+            if (DEBUG_LOG) {
+              console.log(`[Favorites] 🗑️ World ${worldId} likely deleted (403, no private notice, no account keywords)`);
+            }
+            data = {
+              id: worldId,
+              name: pageInfo.title || '[Deleted]',
+              deleted: true,
+              pageThumbnailUrl: pageInfo.imageUrl
+            };
+          }
         }
-        data = { id: worldId, name: '[Deleted]', deleted: true };
-      } else if (res.status === 403) {
-        if (DEBUG_LOG) {
-          console.log(`[Favorites] 🔒 World ${worldId} is private or inaccessible (403)`);
-        }
-        data = { id: worldId, name: '[Private]', private: true };
       } else {
         console.warn(`[Favorites] ⚠️ Unexpected status ${res.status} for ${worldId}`);
         data = { id: worldId, name: `[Error ${res.status}]`, error: true };
@@ -910,15 +1156,36 @@
       updateAllMatchingCards(worldId, data);
 
     } catch (error) {
-      console.warn(`[Favorites] ⚠️ Network error for ${worldId}:`, error.message);
+      if (DEBUG_LOG) {
+        console.warn(`[Favorites] ⚠️ Network error for ${worldId}:`, error.message);
+      }
 
+      // 【v1.4.0修正】ネットワークエラー(未ログイン化やセッション切れの
+      // 可能性が高い)は一時的な状態である可能性があるため、
+      // RESOLVED_WORLDSには保存しない(保存すると再ログイン後も
+      // [Connection Error]のまま固定表示され続けてしまう)。
+      // カードの表示だけを一時的に更新し、ログイン状態が回復すれば
+      // 次回のチェックで正しい情報に置き換わるようにする。
       const fallbackData = {
         id: worldId,
         name: '[Connection Error]',
         fetchError: true
       };
-      RESOLVED_WORLDS.set(worldId, fallbackData);
       updateAllMatchingCards(worldId, fallbackData);
+
+      // 同じ理由(未ログイン等)で他の全カードも次々に失敗し続けるのを
+      // 防ぐため、一定時間は新規リクエストを抑制する。
+      // 【v1.5.0変更】ログイン済みでも一時的なネットワークエラーで
+      // 誤ってバナーが出てしまう問題があったため、バナー表示自体を廃止。
+      if (!isNetworkSuspended) {
+        isNetworkSuspended = true;
+        if (DEBUG_LOG) {
+          console.warn('[Favorites] Network error suspected. Suspending new requests for 30s.');
+        }
+        setTimeout(() => {
+          isNetworkSuspended = false;
+        }, 30000);
+      }
     }
   }
 
@@ -936,6 +1203,41 @@
       favoriteId = unfavBtn.id.replace('Tooltip-Unfavorite-', '');
       if (!favoriteId) return;
       worldId = FAVORITE_ID_TO_WORLD_ID.get(favoriteId);
+
+      // 【フォールバック】VRChat公式サイトの仕様変更により、非公開・削除済み
+      // ワールドのカードでは favoriteId → worldId のマッピングが取得できない
+      // (お気に入りAPIレスポンスに worldId 情報が含まれない)場合がある。
+      // その場合はカード自身の data-scrollkey や a[href] から worldId を
+      // 直接抽出することで、"???" 表示のまま放置されるのを防ぐ。
+      if (!worldId) {
+        const scrollKey = card.getAttribute('data-scrollkey');
+        if (scrollKey && scrollKey.startsWith('wrld_')) {
+          worldId = scrollKey;
+        } else {
+          const link = card.querySelector('a[href*="/home/world/wrld_"]');
+          if (link) {
+            const match = link.href.match(/\/home\/world\/(wrld_[a-zA-Z0-9-]+)/);
+            if (match) worldId = match[1];
+          }
+        }
+
+        if (worldId) {
+          FAVORITE_ID_TO_WORLD_ID.set(favoriteId, worldId);
+        }
+      }
+
+      // worldIdがどうしても特定できない場合、削除・非公開の可能性が高い。
+      // お気に入りレコードのID(favoriteId)自体は変わらず安定しているため、
+      // これをキーとして GET /favorites/{favoriteId} から直接worldIdを
+      // 解決し、"???"表示のまま放置しない。
+      // このカードはまだ PROCESSED_CARDS に加えず、resolveWorldIdFromFavorite
+      // が成功した時点で addControlButtons を再実行してボタン一式を作る。
+      if (!worldId) {
+        if (favoriteId) {
+          resolveWorldIdFromFavorite(favoriteId, card);
+        }
+        return;
+      }
     } else {
       const scrollKey = card.getAttribute('data-scrollkey');
       if (scrollKey && scrollKey.startsWith('wrld_')) {
@@ -969,9 +1271,16 @@
       parentContainer.style.height = 'auto';
     }
 
-    const statsContainer = card.querySelector('.flex-grow-1.css-kfjcvw.e18c1r7j40');
+    // 【フォールバック】VRChat公式サイトのCSS-in-JS(Emotion)ハッシュクラス名は
+    // ビルドの度に変わりうるため、まず完全一致を試し、見つからなければ
+    // 汎用クラス(flex-grow-1)のみで再検索する。
+    // これが見つからない場合もレイアウトが崩れる程度で機能自体は動作する。
+    const statsContainer = card.querySelector('.flex-grow-1.css-kfjcvw.e18c1r7j40')
+      || card.querySelector('.flex-grow-1');
     if (statsContainer) {
       statsContainer.style.paddingBottom = '70px';
+    } else if (DEBUG_LOG) {
+      console.warn('[Favorites] statsContainer not found. VRChat DOM structure may have changed.');
     }
 
     PROCESSED_CARDS.add(card);
@@ -1298,6 +1607,7 @@
         title: t('selectVRCFolder'),
         description: t('selectVRCFolderDesc', { name: worldName }),
         folders: folders,
+        cancelLabel: t('cancel'),
         onConfirm: (folderId) => {
           resolve(folderId);
         },
@@ -1322,6 +1632,7 @@
         title: t('selectExtFolder'),
         description: t('selectExtFolderDesc', { name: worldName }),
         folders: folders,
+        cancelLabel: t('cancel'),
         onConfirm: async (folderId) => {
           await addToExtension(worldId, folderId, card);
           resolve();
@@ -1448,30 +1759,90 @@
     if (data.deleted) {
       const titleH4 = card.querySelector('h4');
       if (titleH4 && worldId) {
-        titleH4.innerHTML = `[Deleted]<br>${worldId}`;
+        // 【v1.4.0追加】data.name は fetchWorldInfo 側で、ワールド詳細
+        // ページの og:title が取得できていればその値に、できなければ
+        // 固定文字列 '[Deleted]' になっている。
+        const hasRealTitle = data.name && data.name !== '[Deleted]';
+        if (hasRealTitle) {
+          titleH4.innerHTML = `[Deleted] "${data.name}"<br><small style="font-size: 10px;">${worldId}</small>`;
+          titleH4.title = `${data.name} (World ID: ${worldId}, deleted)`;
+        } else {
+          titleH4.innerHTML = `[Deleted]<br>${worldId}`;
+          titleH4.title = `World ID: ${worldId} (World has been deleted)`;
+        }
         titleH4.style.color = '#ff6b6b';
-        titleH4.title = `World ID: ${worldId} (World has been deleted)`;
         titleH4.parentElement.style.whiteSpace = 'normal';
       }
 
       const images = card.querySelectorAll('img[alt="???"]');
       images.forEach(img => {
-        img.alt = '[Deleted]';
-        img.src = "https://assets.vrchat.com/default/private-world.png";
+        img.alt = data.name && data.name !== '[Deleted]' ? `[Deleted] ${data.name}` : '[Deleted]';
+        // ワールド詳細ページのog:imageが取得できていればそれを表示し、
+        // なければVRChat公式のデフォルト非公開画像にフォールバックする。
+        img.src = data.pageThumbnailUrl || "https://assets.vrchat.com/default/private-world.png";
+        if (data.pageThumbnailUrl) {
+          img.onerror = () => {
+            img.onerror = null;
+            img.src = "https://assets.vrchat.com/default/private-world.png";
+          };
+        }
+      });
+    } else if (data.accountDeleted) {
+      // 【v1.4.0追加】作者アカウント自体が削除・BANされているケース。
+      // ワールド自体の削除とは原因が異なるため別表示にする。
+      const titleH4 = card.querySelector('h4');
+      if (titleH4 && worldId) {
+        const hasRealTitle = data.name && data.name !== '[Author Account Deleted]';
+        if (hasRealTitle) {
+          titleH4.innerHTML = `👤 [Author Deleted] "${data.name}"<br><small style="font-size: 10px;">${worldId}</small>`;
+          titleH4.title = `${data.name} (World ID: ${worldId}, author's account deleted or suspended)`;
+        } else {
+          titleH4.innerHTML = `👤 [Author Account Deleted]<br><small style="font-size: 10px;">${worldId}</small>`;
+          titleH4.title = `World ID: ${worldId} (Author's account has been deleted or suspended)`;
+        }
+        titleH4.style.color = '#ff9f4a';
+        titleH4.parentElement.style.whiteSpace = 'normal';
+      }
+
+      const images = card.querySelectorAll('img[alt="???"]');
+      images.forEach(img => {
+        img.alt = data.name && data.name !== '[Author Account Deleted]' ? `[Author Deleted] ${data.name}` : '[Author Account Deleted]';
+        img.src = data.pageThumbnailUrl || "https://assets.vrchat.com/default/private-world.png";
+        if (data.pageThumbnailUrl) {
+          img.onerror = () => {
+            img.onerror = null;
+            img.src = "https://assets.vrchat.com/default/private-world.png";
+          };
+        }
       });
     } else if (data.private) {
       const titleH4 = card.querySelector('h4');
       if (titleH4 && worldId) {
-        titleH4.innerHTML = `🔒 [Private]<br><small style="font-size: 10px;">${worldId}</small>`;
+        // 【v1.4.0追加】非公開ワールドは、ワールド詳細ページ自体には
+        // アクセスできる(所有者でなくても表示可能)ため、og:titleから
+        // 実際の名前が取れているケースが最も多いパターン。
+        const hasRealTitle = data.name && data.name !== '[Private]';
+        if (hasRealTitle) {
+          titleH4.innerHTML = `🔒 "${data.name}"<br><small style="font-size: 10px;">${worldId}</small>`;
+          titleH4.title = `${data.name} (World ID: ${worldId}, now private)`;
+        } else {
+          titleH4.innerHTML = `🔒 [Private]<br><small style="font-size: 10px;">${worldId}</small>`;
+          titleH4.title = `World ID: ${worldId} (Private world)`;
+        }
         titleH4.style.color = '#f9e36a';
-        titleH4.title = `World ID: ${worldId} (Private world)`;
         titleH4.parentElement.style.whiteSpace = 'normal';
       }
 
       const images = card.querySelectorAll('img[alt="???"]');
       images.forEach(img => {
-        img.alt = '[Private]';
-        img.src = "https://assets.vrchat.com/default/private-world.png";
+        img.alt = data.name && data.name !== '[Private]' ? `🔒 ${data.name}` : '[Private]';
+        img.src = data.pageThumbnailUrl || "https://assets.vrchat.com/default/private-world.png";
+        if (data.pageThumbnailUrl) {
+          img.onerror = () => {
+            img.onerror = null;
+            img.src = "https://assets.vrchat.com/default/private-world.png";
+          };
+        }
       });
     } else if (data.fetchError) {
       const titleH4 = card.querySelector('h4');
@@ -1553,6 +1924,16 @@
     const url = window.location.href;
     const match = url.match(/favorites\/(\w+)\/([\w\d\-]+)/);
 
+    // 【v1.5.0追加】/home/favorites/配下でない場合、このAPI(お気に入り一覧)は
+    // 意味を持たないため呼ばない。/home/content/worlds等の投稿管理ページや
+    // その他無関係なページでの不要な401を防ぐ。
+    if (!match && !url.includes('/home/favorites')) {
+      if (DEBUG_LOG) {
+        console.log('[Favorites] Not a favorites page. Skipping API call.', url);
+      }
+      return;
+    }
+
     let apiUrl = `${API_BASE}/favorites?type=world&n=100`;
 
     if (match) {
@@ -1567,20 +1948,67 @@
 
     try {
       const res = await origFetch(apiUrl, { credentials: 'include' });
-      if (res.ok) processFavoritesData(await res.json());
+      if (res.ok) {
+        processFavoritesData(await res.json());
+      } else if (res.status === 401) {
+        // ページを開いたまま未ログインになったケース。
+        // 【v1.5.0変更】バナー表示は廃止(不要との判断)し、ログのみ残す。
+        if (DEBUG_LOG) {
+          console.warn('[Favorites] Not logged in (401) while loading favorites');
+        }
+      } else if (DEBUG_LOG) {
+        console.warn(`[Favorites] Failed to load favorites: HTTP ${res.status}`);
+      }
     } catch (error) {
-      console.error('[Favorites] Error loading favorites:', error);
+      if (DEBUG_LOG) {
+        console.error('[Favorites] Error loading favorites:', error);
+      }
+      // fetch自体が失敗した場合(ネットワーク断・セッション切れの瞬間等)。
+      // 【v1.5.0変更】バナー表示は廃止(不要との判断)。
     } finally {
       isLoadingFavorites = false;
     }
   }
 
   // ==================== 初期化 ====================
+  // 【v1.5.0修正】除外リスト方式(ブラックリスト)だと、リストにない
+  // ページ(ワールド詳細、フレンド一覧、ホーム等)では素通りしてしまい、
+  // 401エラーが出続ける問題が解消しなかった。
+  // お気に入り一覧はvrchat.com/home/worlds配下(Worldsタブ内の
+  // My Worldsドロップダウンでフィルタする形式)でのみ機能するため、
+  // 許可リスト方式(ホワイトリスト)に変更し、それ以外のページでは
+  // 一切初期化しないようにする。
+  // 対象ページの特定は困難(favorites/worlds/content等、複数の
+  // ページ配下で機能する)なため、明確な非対象ページのみ除外する
+  // ブラックリスト方式に戻す。401防止は、実際にお気に入り/ワールド
+  // 管理系のDOMが存在するかどうかのチェック(hasRelevantDom)で行う。
+  function isNonTargetPage() {
+    const nonTargetPaths = [
+      '/home/login',
+      '/home/register',
+      '/home/password',
+      '/home/logout',
+      '/home/verify'
+    ];
+    return nonTargetPaths.some(path => window.location.pathname.startsWith(path));
+  }
+
+  function isTargetPage() {
+    return !isNonTargetPage();
+  }
+
   async function init() {
     // 拡張機能コンテキストチェック
     if (!checkExtensionContext()) {
       if (DEBUG_LOG) {
         console.log('[Favorites] Extension context invalidated. Stopping script.');
+      }
+      return;
+    }
+
+    if (!isTargetPage()) {
+      if (DEBUG_LOG) {
+        console.log('[Favorites] Not the worlds/favorites page. Skipping.', window.location.pathname);
       }
       return;
     }

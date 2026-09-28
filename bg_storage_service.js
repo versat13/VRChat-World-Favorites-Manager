@@ -234,7 +234,7 @@ async function safeStorageRemove(storageType, keys, progressCallback = null) {
 
 async function initializeStorage() {
   const sync = await chrome.storage.sync.get(['folders', 'vrcFolderData', 'worlds', 'worlds_0']);
-  const local = await chrome.storage.local.get(['vrcWorlds', 'worldDetails', 'migrationCompleted_v120']);
+  const local = await chrome.storage.local.get(['vrcWorlds', 'worldDetails']);
 
   if (!sync.folders) await safeStorageSet('sync', { folders: [] });
   if (!local.vrcWorlds) await safeStorageSet('local', { vrcWorlds: [] });
@@ -260,68 +260,6 @@ async function initializeStorage() {
   if (!sync.vrcFolderData) {
     await safeStorageSet('sync', { vrcFolderData: {} });
   }
-
-  // v1.2.0: vrcWorldsの詳細情報をworldDetails_*に統合
-  // 注意: v1.2.2でこのマイグレーション処理は削除予定
-  if (!local.migrationCompleted_v120) {
-    await migrateVrcWorldsToUnifiedStorage();
-  }
-}
-
-// ========================================
-// マイグレーション処理（v1.2.2で削除予定）
-// ========================================
-
-async function migrateVrcWorldsToUnifiedStorage() {
-  try {
-    logAction('MIGRATION_V120_START', 'Starting vrcWorlds migration');
-
-    const local = await chrome.storage.local.get(['vrcWorlds']);
-    const vrcWorlds = local.vrcWorlds || [];
-
-    if (vrcWorlds.length === 0) {
-      logAction('MIGRATION_V120_SKIP', 'No vrcWorlds to migrate');
-      await chrome.storage.local.set({ migrationCompleted_v120: true });
-      return;
-    }
-
-    const detailsMap = {};
-    for (const world of vrcWorlds) {
-      if (world.name || world.authorName || world.releaseStatus || world.thumbnailImageUrl) {
-        detailsMap[world.id] = {
-          name: world.name || world.id,
-          authorName: world.authorName || null,
-          releaseStatus: world.releaseStatus || null,
-          thumbnailImageUrl: world.thumbnailImageUrl || null
-        };
-      }
-    }
-
-    if (Object.keys(detailsMap).length > 0) {
-      logAction('MIGRATION_V120_SAVING_DETAILS', { count: Object.keys(detailsMap).length });
-      await saveWorldDetailsBatch(detailsMap);
-    }
-
-    const minimalVrcWorlds = vrcWorlds.map(w => ({
-      id: w.id,
-      folderId: w.folderId,
-      favoriteRecordId: w.favoriteRecordId || null
-    }));
-
-    await chrome.storage.local.set({
-      vrcWorlds: minimalVrcWorlds,
-      migrationCompleted_v120: true
-    });
-
-    logAction('MIGRATION_V120_COMPLETE', {
-      totalWorlds: vrcWorlds.length,
-      detailsSaved: Object.keys(detailsMap).length
-    });
-
-  } catch (error) {
-    logError('MIGRATION_V120_ERROR', error);
-    await chrome.storage.local.set({ migrationCompleted_v120: true });
-  }
 }
 
 // ========================================
@@ -337,10 +275,16 @@ async function getStorageStats(sendResponse) {
     const local = await chrome.storage.local.get(['vrcWorlds']);
 
     const syncWorldCount = (sync.worlds || []).length;
-    const worlds1Count = (local.vrcWorlds || []).filter(w => w.folderId === 'worlds1').length;
-    const worlds2Count = (local.vrcWorlds || []).filter(w => w.folderId === 'worlds2').length;
-    const worlds3Count = (local.vrcWorlds || []).filter(w => w.folderId === 'worlds3').length;
-    const worlds4Count = (local.vrcWorlds || []).filter(w => w.folderId === 'worlds4').length;
+
+    // 【v1.3.1修正】VRC連携フォルダは4件固定ではない(Plus会員は8件)ため、
+    // 実際に存在するVRCフォルダごとに動的集計する
+    const vrcWorldsLocal = local.vrcWorlds || [];
+    const vrcFolderCounts = {};
+    for (const w of vrcWorldsLocal) {
+      if (w.folderId && w.folderId.startsWith('worlds')) {
+        vrcFolderCounts[w.folderId] = (vrcFolderCounts[w.folderId] || 0) + 1;
+      }
+    }
 
     const stats = {
       sync: {
@@ -353,7 +297,7 @@ async function getStorageStats(sendResponse) {
       },
       local: {
         bytes: localBytes,
-        worlds1Count, worlds2Count, worlds3Count, worlds4Count
+        vrcFolderCounts
       }
     };
     sendResponse(stats);
@@ -508,4 +452,51 @@ async function getVRCFolderWorlds(folderId) {
   const local = await chrome.storage.local.get(['vrcWorlds']);
   const vrcWorlds = local.vrcWorlds || [];
   return vrcWorlds.filter(w => w.folderId === folderId);
+}
+
+// ========================================
+// 全データリセット（設定は保持）
+// ========================================
+
+/**
+ * ワールド・フォルダ・ウォッチリスト等の全データを削除する。
+ * 'settings'キー（テーマ・言語・通知間隔等のユーザー設定）のみは保持する。
+ * オプション画面の「全データ削除」ボタンから呼ばれる。
+ */
+async function resetAllData(sendResponse) {
+  try {
+    logAction('RESET_ALL_DATA_START', {});
+
+    // sync: settings以外の全キーを削除
+    const sync = await chrome.storage.sync.get(null);
+    const syncKeysToRemove = Object.keys(sync).filter(key => key !== 'settings');
+    if (syncKeysToRemove.length > 0) {
+      await chrome.storage.sync.remove(syncKeysToRemove);
+    }
+
+    // local: 全キーを削除（設定はsync側にのみ保存されているため対象外の判定は不要）
+    const local = await chrome.storage.local.get(null);
+    const localKeys = Object.keys(local);
+    if (localKeys.length > 0) {
+      await chrome.storage.local.remove(localKeys);
+    }
+
+    // 初期状態のキーを再構築（folders/vrcWorlds/worlds_0/vrcFolderData等）
+    await initializeStorage();
+
+    // メモリ上の未読通知状態もクリアし、バッジ表示を0に戻す
+    if (typeof clearAllNotifications === 'function') {
+      await clearAllNotifications();
+    }
+
+    logAction('RESET_ALL_DATA_COMPLETE', {
+      syncKeysRemoved: syncKeysToRemove.length,
+      localKeysRemoved: localKeys.length
+    });
+
+    sendResponse(createSuccessResponse());
+  } catch (error) {
+    logError('RESET_ALL_DATA_ERROR', error);
+    sendResponse(createGenericError(error.message, 'reset_failed'));
+  }
 }

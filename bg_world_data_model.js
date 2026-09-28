@@ -76,7 +76,9 @@ async function addWorldToFolder(world) {
 
     if (folderId.startsWith('worlds')) {
       // VRCフォルダへの追加
-      if (world.releaseStatus === 'private' || world.releaseStatus === 'deleted') {
+      // 【v1.4.0修正】'hidden'はVRChat公式の削除済みワールドの実際の
+      // releaseStatus。'deleted'(このアプリ独自の合成値)と同様に扱う。
+      if (world.releaseStatus === 'private' || world.releaseStatus === 'deleted' || world.releaseStatus === 'hidden' || world.releaseStatus === 'accountDeleted') {
         return createPrivateWorldError(world.name);
       }
 
@@ -212,7 +214,7 @@ async function addWorld(world, sendResponse) {
 
     if (existing) {
       if (existing.folderId === folderId) {
-        sendResponse({ success: false, reason: 'already_exists_same_folder' });
+        sendResponse({ success: false, reason: ErrorReason.ALREADY_EXISTS_SAME_FOLDER });
         return;
       }
       sendResponse(createAlreadyExistsError(existing.folderId, world.name));
@@ -359,6 +361,7 @@ async function batchUpdateWorlds(changes, sendResponse, progressCallback = null)
     let deletedSuccessCount = 0;
     let errorCount = 0;
     const errors = [];
+    let firstFailureReason = null; // 【v1.3.3追加】致命的なエラー(上限超過・レート制限)を検知したら保持する
 
     const allChanges = [
       ...movedWorlds.map(m => ({ type: 'move', ...m })),
@@ -381,6 +384,17 @@ async function batchUpdateWorlds(changes, sendResponse, progressCallback = null)
         errors.push(...result.errorMessages);
       }
 
+      // 【v1.3.3追加】上限超過・レート制限等の致命的なreasonを検知したら、
+      // それ以上バッチを進めても状況は変わらないため打ち切る
+      if (result.reason && (
+        result.reason === ErrorReason.SYNC_LIMIT_EXCEEDED ||
+        result.reason === ErrorReason.VRC_LIMIT_EXCEEDED ||
+        result.reason === ErrorReason.RATE_LIMIT_EXCEEDED
+      )) {
+        firstFailureReason = result;
+        break;
+      }
+
       await sleep(500);
     }
 
@@ -392,8 +406,26 @@ async function batchUpdateWorlds(changes, sendResponse, progressCallback = null)
 
     await sleep(100);
 
+    // 【v1.3.3追加】致命的なエラーがあれば、そのreasonを最優先でレスポンスに含める
+    if (firstFailureReason) {
+      sendResponse({
+        success: false,
+        reason: firstFailureReason.reason,
+        folderName: firstFailureReason.folderName,
+        waitSeconds: firstFailureReason.waitSeconds,
+        movedCount: movedSuccessCount,
+        deletedCount: deletedSuccessCount,
+        errorCount: errorCount,
+        errors: errors.length > 0 ? errors : null
+      });
+      return;
+    }
+
     sendResponse({
       success: errorCount === 0,
+      // 【v1.3.3追加】個別アイテムエラーがあった場合のreason(致命的エラーではないため続行はしたが、一部失敗した旨を伝える)
+      reason: errorCount > 0 ? 'batch_item_errors' : undefined,
+      message: errors.length > 0 ? errors[0] : undefined,
       movedCount: movedSuccessCount,
       deletedCount: deletedSuccessCount,
       errorCount: errorCount,
@@ -432,6 +464,8 @@ async function processUnifiedBatch(batch, progressCallback = null) {
       const overflow = syncAfterMove - SYNC_WORLD_LIMIT;
       logError('BATCH_SYNC_LIMIT_EXCEEDED', `Would exceed limit: ${syncAfterMove}/${SYNC_WORLD_LIMIT}`, { overflow });
       return {
+        success: false,
+        reason: ErrorReason.SYNC_LIMIT_EXCEEDED,
         movedSuccess: 0,
         deletedSuccess: 0,
         errors: batch.length,
@@ -459,6 +493,9 @@ async function processUnifiedBatch(batch, progressCallback = null) {
         const addCount = vrcAddByFolder[folderId] || 0;
         logError('BATCH_VRC_LIMIT_EXCEEDED', `${folderId}: ${count}/${VRC_FOLDER_LIMIT}`, { addCount });
         return {
+          success: false,
+          reason: ErrorReason.VRC_LIMIT_EXCEEDED,
+          folderName: folderId,
           movedSuccess: 0,
           deletedSuccess: 0,
           errors: batch.length,
@@ -617,6 +654,12 @@ async function processUnifiedBatch(batch, progressCallback = null) {
     logBatch('UNIFIED_BATCH_COMPLETE', { movedSuccess: movedSuccessCount, deletedSuccess: deletedSuccessCount, errors: errorMessages.length });
 
     return {
+      success: errorMessages.length === 0,
+      // 【v1.3.3追加】個別アイテムエラーがあった場合、reasonベースでpopup側が
+      // ローカライズできるようにする。件数と最初のエラー内容をdetailに含める。
+      reason: errorMessages.length > 0 ? 'batch_item_errors' : undefined,
+      errorCount: errorMessages.length,
+      message: errorMessages.length > 0 ? errorMessages[0] : undefined,
       movedSuccess: movedSuccessCount,
       deletedSuccess: deletedSuccessCount,
       errors: errorMessages.length,
@@ -627,6 +670,9 @@ async function processUnifiedBatch(batch, progressCallback = null) {
     if (error.message && error.message.includes('MAX_WRITE_OPERATIONS_PER_MINUTE')) {
       logError('UNIFIED_BATCH_RATE_LIMIT_FATAL', error.message);
       return {
+        success: false,
+        reason: ErrorReason.RATE_LIMIT_EXCEEDED,
+        waitSeconds: 60,
         movedSuccess: 0,
         deletedSuccess: 0,
         errors: batch.length,
@@ -637,6 +683,9 @@ async function processUnifiedBatch(batch, progressCallback = null) {
 
     logError('UNIFIED_BATCH_ERROR', error);
     return {
+      success: false,
+      reason: ErrorReason.BATCH_PROCESSING_ERROR,
+      message: error.message,
       movedSuccess: 0,
       deletedSuccess: 0,
       errors: batch.length,

@@ -1,22 +1,24 @@
 {
   "manifest_version": 3,
   "name": "VRChat Favorite Worlds Manager",
-  "version": "1.3.0",
+  "version": "1.5.1",
   "description": "VRChatのワールドを公式と連携しながらお気に入り登録・整理するためのファイルマネージャ",
   "permissions": [
     "storage",
-    "tabs",
     "contextMenus",
-    "notifications"
+    "notifications",
+    "alarms"
   ],
   "host_permissions": [
-    "*://vrchat.com/*"
+    "https://vrchat.com/*",
+    "https://vrclist.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
+      "64": "icons/icon64.png",
       "128": "icons/icon128.png"
     }
   },
@@ -35,6 +37,30 @@
         "page-favorites.js",
         "page-world.js"
       ]
+    },
+    {
+      "matches": [
+        "https://vrclist.com/world/*"
+      ],
+      "js": [
+        "page-helpers-shared.js",
+        "page-cs-helpers.js",
+        "page-vrclist.js",
+        "page-vrclist-list.js"
+      ]
+    },
+    {
+      "matches": [
+        "https://vrclist.com/*"
+      ],
+      "exclude_matches": [
+        "https://vrclist.com/world/*"
+      ],
+      "js": [
+        "page-helpers-shared.js",
+        "page-cs-helpers.js",
+        "page-vrclist-list.js"
+      ]
     }
   ],
   "background": {
@@ -43,6 +69,7 @@
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
+    "64": "icons/icon64.png",
     "128": "icons/icon128.png"
   }
 }

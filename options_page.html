@@ -333,7 +333,7 @@
         <h1 id="pageTitle">⚙️ 設定</h1>
       </div>
       <div class="header-right">
-        <div id="footerInfo">Version 1.2.2</div>
+        <div id="footerInfo">Version 1.4.0</div>
       </div>
     </div>
 
@@ -347,11 +347,25 @@
         <div class="setting-item">
           <div class="setting-info">
             <div class="setting-label" id="desktopNotificationLabel">デスクトップ通知</div>
-            <div class="setting-description" id="desktopNotificationDescription">新しい更新があった時にChromeの通知を表示</div>
+            <div class="setting-description" id="desktopNotificationDescription">ウォッチリストに新着があった時にChromeの通知を表示</div>
           </div>
           <div class="toggle-switch active" id="desktopNotificationToggle">
             <div class="toggle-slider"></div>
           </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="watchListIntervalLabel">ウォッチリスト自動チェック</div>
+            <div class="setting-description" id="watchListIntervalDescription">ウォッチリストの新着を自動確認するタイミング</div>
+          </div>
+          <select id="watchListIntervalSelect">
+            <option value="0" id="watchListIntervalNever">自動巡回しない</option>
+            <option value="-1" id="watchListIntervalStartupOnly">起動時のみ</option>
+            <option value="60" id="watchListIntervalOneHour">1時間ごと</option>
+            <option value="180" id="watchListIntervalThreeHours">3時間ごと</option>
+            <option value="720" id="watchListIntervalTwelveHours">12時間ごと</option>
+          </select>
         </div>
 
         <!-- 機能設定 (セクション囲い削除) -->
@@ -360,7 +374,7 @@
         <div class="setting-item">
           <div class="setting-info">
             <div class="setting-label" id="autoResolveDuplicatesLabel">ワールドデータ重複の自動修復</div>
-            <div class="setting-description" id="autoResolveDuplicatesDescription">エラーによるデータ重複を再表示ボタンで修復</div>
+            <div class="setting-description" id="autoResolveDuplicatesDescription">ファイルインポート時に発生したデータ重複を自動修復</div>
           </div>
           <div class="toggle-switch active" id="autoResolveDuplicatesToggle">
             <div class="toggle-slider"></div>
@@ -370,9 +384,19 @@
         <div class="setting-item">
           <div class="setting-info">
             <div class="setting-label" id="vrcSiteIntegrationLabel">VRChat公式サイト内にボタン追加</div>
-            <div class="setting-description" id="vrcSiteIntegrationDescription">公式サイト内のワールド情報に削除ボタンなどを追加</div>
+            <div class="setting-description" id="vrcSiteIntegrationDescription">公式サイト内のワールド情報に保存・お気に入り等のボタンを追加</div>
           </div>
           <div class="toggle-switch active" id="vrcSiteIntegrationToggle">
+            <div class="toggle-slider"></div>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label" id="vrcListIntegrationLabel">VRClist内にボタン追加</div>
+            <div class="setting-description" id="vrcListIntegrationDescription">vrclist.comのワールド詳細ページに保存・お気に入り等のボタンを追加</div>
+          </div>
+          <div class="toggle-switch active" id="vrcListIntegrationToggle">
             <div class="toggle-slider"></div>
           </div>
         </div>
@@ -400,7 +424,7 @@
           </div>
           <select id="themeSelect">
             <option value="dark" id="themeDark">ダーク</option>
-            <option value="light" id="themeLight">ライト</option>
+            <option value="light" id="themeLight" selected>ライト</option>
           </select>
         </div>
 
@@ -423,13 +447,13 @@
             <div class="setting-label" id="resetLabel">設定リセット</div>
             <div class="setting-description" id="resetDescription">オプション内の設定をデフォルトに戻す</div>
           </div>
-          <button class="btn" id="resetBtn">実行</button>
+          <button class="btn btn-danger" id="resetBtn">リセット</button>
         </div>
         
         <div class="setting-item">
           <div class="setting-info">
             <div class="setting-label" id="resetDataLabel">保存データを全削除</div>
-            <div class="setting-description" id="resetDataDescription">保存されているすべてのワールドおよびフォルダを削除</div>
+            <div class="setting-description" id="resetDataDescription">保存されているすべてのワールドおよびフォルダ、ウォッチリストを削除</div>
           </div>
           <button class="btn btn-danger" id="resetDataBtn">全削除</button>
         </div>

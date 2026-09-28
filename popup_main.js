@@ -390,6 +390,24 @@ function setupEventListeners() {
   document.getElementById('nextPageBtn').addEventListener('click', () => changePage(1));
   document.getElementById('selectAllWrapper').addEventListener('click', toggleSelectAll);
 
+  // 言語切替ボタン: JA/ENをワンクリックでトグル
+  document.getElementById('langToggleBtn').addEventListener('click', async () => {
+    const newLang = currentLang === 'ja' ? 'en' : 'ja';
+    try {
+      const result = await chrome.storage.sync.get('settings');
+      const settings = result.settings || {};
+      settings.language = newLang;
+      await chrome.storage.sync.set({ settings });
+      // storage.onChangedより先に自前で確定させ、直後の再描画に間に合わせる
+      currentLang = newLang;
+      applyLanguage();
+      renderFolderTabs();
+      renderCurrentView();
+    } catch (error) {
+      console.error('Failed to switch language:', error);
+    }
+  });
+
   // ヘッダーボタン
   document.getElementById('openOptionsBtn').addEventListener('click', () => {
     chrome.windows.create({
@@ -750,14 +768,24 @@ function renderWorlds(worlds) {
     const thumbnailUrl = world.thumbnailImageUrl || '';
     const releaseStatus = world.releaseStatus || 'unknown';
     const isPrivate = releaseStatus === 'private';
-    const isDeleted = releaseStatus === 'deleted';
+    // 【v1.4.0修正】VRChat公式の「ワールド削除」は実際にはreleaseStatusが
+    // 'hidden'になる仕様(完全な削除ではなくファイルのみ削除・IDは予約継続)。
+    // 'deleted'はAPIから404が返った場合にこの拡張機能が独自に付与する
+    // 合成値なので、両方とも「削除済み」として扱う。
+    const isDeleted = releaseStatus === 'deleted' || releaseStatus === 'hidden';
+    // 【v1.4.0追加】作者アカウント自体が削除・BANされている場合、VRChat API
+    // からのエラーメッセージにアカウント関連の語が含まれることを手がかりに
+    // 判定した値。ワールド自体の削除とは原因が異なるため別表示にする。
+    const isAccountDeleted = releaseStatus === 'accountDeleted';
     const isSelected = selectedWorldIds.has(world.id);
     const authorName = world.authorName || t('unknownAuthor');
     const folderName = getFolderDisplayName(world.folderId);
 
     let statusBadge = '';
     if (releaseStatus !== 'unknown') {
-      if (isDeleted) {
+      if (isAccountDeleted) {
+        statusBadge = `<span class="status-badge deleted">${t('statusAccountDeleted')}</span>`;
+      } else if (isDeleted) {
         statusBadge = `<span class="status-badge deleted">${t('statusDeleted')}</span>`;
       } else if (isPrivate) {
         statusBadge = `<span class="status-badge private">${t('statusPrivate')}</span>`;
@@ -1005,8 +1033,8 @@ async function autoResolveDuplicatesIfNeeded() {
         renderCurrentView();
       }
     } else {
-      const errorMsg = resolveResponse.userMessage || resolveResponse.message || 'Unknown error';
-      logError('重複解消失敗', errorMsg);
+      const errorMsg = resolveErrorMessage(resolveResponse);
+      logError('重複解消失敗', resolveResponse.message || errorMsg);
       showNotification(t('duplicateResolveFailed', { error: errorMsg }), 'error');
     }
   } catch (error) {

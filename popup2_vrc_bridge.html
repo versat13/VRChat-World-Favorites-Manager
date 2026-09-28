@@ -253,6 +253,23 @@
             line-height: 1.4;
         }
 
+        #openVrchatLoginBtn {
+            display: none;
+            margin-top: 10px;
+            padding: 8px 16px;
+            background-color: var(--accent, #4a9eff);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        #openVrchatLoginBtn:hover {
+            opacity: 0.9;
+        }
+
         .progress-bar {
             background-color: var(--bg-tertiary);
             border: 1px solid var(--border-normal);
@@ -352,6 +369,7 @@
             </div>
 
             <div id="error-message"></div>
+            <button id="openVrchatLoginBtn" type="button" style="display:none;"></button>
         </div>
 
         <div id="alert-message">

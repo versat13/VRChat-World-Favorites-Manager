@@ -165,7 +165,8 @@ const BG_TRANSLATIONS = {
     alreadyRegistered: '「{name}」は既に「{folder}」に登録済みです',
     addedToUncategorized: '「{name}」を未分類に追加しました',
     addFailed: '追加に失敗しました',
-    errorOccurred: 'エラーが発生しました'
+    errorOccurred: 'エラーが発生しました',
+    uncategorized: '未分類'
   },
   en: {
     // Notifications
@@ -184,7 +185,8 @@ const BG_TRANSLATIONS = {
     alreadyRegistered: '"{name}" is already registered in "{folder}"',
     addedToUncategorized: 'Added "{name}" to Uncategorized',
     addFailed: 'Failed to add',
-    errorOccurred: 'An error occurred'
+    errorOccurred: 'An error occurred',
+    uncategorized: 'Uncategorized'
   }
 };
 

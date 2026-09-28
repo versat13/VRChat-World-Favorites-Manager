@@ -175,6 +175,28 @@
       color: var(--accent-dark);
     }
 
+    /* 🆕 言語切替ボタン: オプションボタンよりさりげなく、控えめなサイズ */
+    .lang-toggle-btn {
+      padding: 4px 8px;
+      background: transparent;
+      border: 1px solid var(--border-color, #444);
+      border-radius: 6px;
+      color: var(--text-secondary, #999);
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      transition: all 0.2s;
+      opacity: 0.75;
+      white-space: nowrap;
+    }
+
+    .lang-toggle-btn:hover {
+      opacity: 1;
+      border-color: var(--accent-primary);
+      color: var(--accent-primary);
+    }
+
     /* 🆕 v1.3.0: ユーザーウォッチバッジ */
     .user-watch-badge {
       position: absolute;
@@ -1372,6 +1394,7 @@
     <div class="header">
       <h1 id="headerTitle">🌎 VRChat World Favorites Manager</h1>
       <div style="display: flex; gap: 8px; align-items: center;">
+        <button class="lang-toggle-btn" id="langToggleBtn">🌐 EN</button>
         <button class="open-window-btn" id="openOptionsBtn">⚙️</button>
         <button class="open-window-btn" id="openUserFavoritesBtn" style="position: relative;">
           <span id="openUserFavoritesBtnText">👤 ウォッチリスト</span>
@@ -1413,7 +1436,7 @@
             </div>
             <div class="pagination-settings">
               <span id="displayCountLabel">表示数</span>
-              <input type="number" id="itemsPerPageInput" min="1" max="100" value="20">
+              <input type="number" id="itemsPerPageInput" min="1" max="100" value="100">
             </div>
           </div>
         </div>
@@ -1488,7 +1511,7 @@
         <span class="folder-id-badge" id="vrcFolderIdBadge"></span>
       </div>
       <div class="modal-body">
-        <p id="vrcFolderDescription1" style="margin-bottom: 12px;">VRChat公式のお気に入りワールド一覧(4フォルダすべて)と同期します:</p>
+        <p id="vrcFolderDescription1" style="margin-bottom: 12px;">VRChat公式のお気に入りワールド一覧(すべてのフォルダ)と同期します:</p>
         <p id="vrcFolderWarning" style="margin-bottom: 8px; font-size: 11px; color: #888;">
           <strong>⚠️ 注意:</strong> 拡張機能で整理したワールド一覧をVRChat公式に反映します
         </p>
@@ -1548,7 +1571,9 @@
 
   <script src="popup_core.js"></script>
   <script src="popup_main.js"></script>
-  <script src="popup_actions.js"></script>
+  <script src="popup_actions_world.js"></script>
+  <script src="popup_actions_modal.js"></script>
+  <script src="popup_actions_misc.js"></script>
 
 </body>
 

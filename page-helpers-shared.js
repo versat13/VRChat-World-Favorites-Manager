@@ -122,9 +122,10 @@
    */
   function showFolderSelectModal(options) {
     const {
-      title = '📁 フォルダを選択',
-      description = 'フォルダを選択してください',
+      title = '📁 Select Folder',
+      description = 'Please select a folder',
       folders = [],
+      cancelLabel = 'Cancel',
       onConfirm = () => { },
       onCancel = () => { }
     } = options;
@@ -170,7 +171,7 @@
           color: ${colors.cancelText};
           cursor: pointer;
           transition: all 0.2s;
-        ">キャンセル</button>
+        ">${cancelLabel}</button>
       </div>
     `;
 

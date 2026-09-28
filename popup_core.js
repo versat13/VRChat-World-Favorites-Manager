@@ -90,7 +90,7 @@ const translations = {
         deleteFolderBtn: '削除',
 
         vrcFolderModalTitle: '🔄 VRChatと同期',
-        vrcFolderDescription1: 'VRChat公式のお気に入りワールド一覧(4フォルダすべて)と同期します:',
+        vrcFolderDescription1: 'VRChat公式のお気に入りワールド一覧(すべてのフォルダ)と同期します:',
         vrcFolderWarning: '⚠️ 注意: 拡張機能で整理したワールド一覧をVRChat公式に反映します',
         vrcFolderFetchInfo: '📥 取得: VRChat公式から全フォルダを取得(同期前の確認用)',
         vrcFetchBtn: '📥 取得',
@@ -115,6 +115,7 @@ const translations = {
         statusDeleted: '🗑️ Deleted',
         statusPrivate: '🔒 Private',
         statusPublic: '🌍 Public',
+        statusAccountDeleted: '👤 Author Account Deleted',
 
         // ウォッチリスト関連
         worldNotFound: 'ワールドが見つかりません',
@@ -132,6 +133,8 @@ const translations = {
         detailsFetchingFailed: 'ワールド情報の取得に失敗しました',
         errorOccurred: 'エラーが発生しました',
         worldDeleted: 'このワールドは削除されています',
+        worldPrivate: 'このワールドは非公開に設定されています',
+        worldAccountDeleted: 'このワールドの作者アカウントが削除または凍結されています',
         allDetailsFetched: '全てのワールド情報を取得済みです',
         thumbnailCancel: 'サムネイル取得をキャンセルしました',
         fetchComplete: '取得完了: 成功 {successCount}件 / 失敗 {failCount}件',
@@ -236,7 +239,36 @@ const translations = {
         resolvingDuplicates: '重複ワールドを解消中...',
         duplicatesResolved: '{count}件の重複を解消しました',
         noDuplicatesFound: '重複は見つかりませんでした',
-        duplicateResolveFailed: '重複解消に失敗しました: {error}'
+        duplicateResolveFailed: '重複解消に失敗しました: {error}',
+
+        // バックグラウンドエラー (reasonキーから解決)
+        err_vrc_limit_exceeded: 'VRCフォルダの上限(200件)に達しています。これ以上追加できません。',
+        err_vrc_sync_limit_exceeded: 'VRCフォルダが100件を超えているため、VRChatへの同期ができません。不要なワールドを削除してください。',
+        err_sync_limit_exceeded: 'カスタムフォルダの上限(1000件)に達しています。不要なワールドを削除してください。',
+        err_sync_bytes_exceeded: 'ストレージ容量が上限に達しています。不要なワールドを削除してください。',
+        err_rate_limit_exceeded: '短時間に多くの変更を行ったため、処理を一時停止しています。約{waitSeconds}秒お待ちください。',
+        err_limit_exceeded: '操作の制限に達しました。しばらく待ってから再度お試しください。',
+        err_private_world: '「{worldName}」はプライベートまたは削除済みのため、VRCフォルダには追加できません。',
+        err_already_exists_different_folder: '「{worldName}」は既に別のフォルダに登録されています。',
+        err_already_exists_same_folder: 'このワールドは既にこのフォルダに登録されています。',
+        err_already_exists: 'このワールドは既に登録されています。',
+        err_auth_required: 'VRChatにログインしていません。vrchat.comでログインしてから再度お試しください。',
+        err_not_found: 'ワールドが見つかりませんでした。削除された可能性があります。',
+        err_world_not_found: 'ワールドが見つかりませんでした。',
+        err_world_details_fetch_failed: 'ワールド情報の取得に失敗しました。',
+        err_user_not_found: 'ユーザーが見つかりませんでした。',
+        err_invalid_data: '無効なデータ形式です。',
+        err_data_inconsistency: 'データに不整合が見つかりました。重複検出機能で修復を試してください。',
+        err_missing_parameter: '必要な情報が不足しています。',
+        err_author_fetch_failed: '作者情報の取得に失敗しました。',
+        err_no_user_id: 'ユーザーIDが指定されていません。',
+        err_rate_limit: 'VRChatのAPI制限に達しました。しばらく待ってから再度お試しください。',
+        err_server_error: 'VRChatのサーバーで問題が発生しています。しばらく待ってから再度お試しください。',
+        err_api_error: 'VRChatとの通信でエラーが発生しました。',
+        err_batch_item_errors: '一部のワールドの処理に失敗しました({errorCount}件): {detail}',
+        err_batch_processing_error: '処理中にエラーが発生しました: {detail}',
+        err_unexpected: '予期しないエラーが発生しました: {detail}',
+        windowOpenFailed: 'ウィンドウを開けませんでした'
     },
     en: {
         // Header
@@ -309,7 +341,7 @@ const translations = {
         deleteFolderBtn: 'Delete',
 
         vrcFolderModalTitle: '🔄 Sync with VRChat',
-        vrcFolderDescription1: 'Sync with the official VRChat favorite world list (all 4 folders):',
+        vrcFolderDescription1: 'Sync with the official VRChat favorite world list (all folders):',
         vrcFolderWarning: '⚠️ Warning: The world list organized in the extension will be reflected in the official VRChat favorites.',
         vrcFolderFetchInfo: '📥 Fetch: Fetch all folders from VRChat official (for pre-sync review)',
         vrcFetchBtn: '📥 Fetch',
@@ -334,6 +366,7 @@ const translations = {
         statusDeleted: '🗑️ Deleted',
         statusPrivate: '🔒 Private',
         statusPublic: '🌍 Public',
+        statusAccountDeleted: '👤 Author Account Deleted',
 
         // Watch list related
         worldNotFound: 'World not found',
@@ -351,6 +384,8 @@ const translations = {
         detailsFetchingFailed: 'Failed to fetch world details',
         errorOccurred: 'An error occurred',
         worldDeleted: 'This world has been deleted',
+        worldPrivate: 'This world has been set to private',
+        worldAccountDeleted: 'This world\'s author account has been deleted or suspended',
         allDetailsFetched: 'All world details have been fetched',
         thumbnailCancel: 'Thumbnail fetching cancelled',
         fetchComplete: 'Fetch Complete: Success {successCount} / Fail {failCount}',
@@ -455,7 +490,36 @@ const translations = {
         resolvingDuplicates: 'Resolving duplicate worlds...',
         duplicatesResolved: 'Resolved {count} duplicates',
         noDuplicatesFound: 'No duplicates found',
-        duplicateResolveFailed: 'Failed to resolve duplicates: {error}'
+        duplicateResolveFailed: 'Failed to resolve duplicates: {error}',
+
+        // Background Errors (resolved from reason key)
+        err_vrc_limit_exceeded: 'VRC folder limit (200) reached. No more worlds can be added.',
+        err_vrc_sync_limit_exceeded: 'This VRC folder exceeds 100 items, so it cannot be synced to VRChat. Please remove some worlds.',
+        err_sync_limit_exceeded: 'Custom folder limit (1000) reached. Please remove some worlds.',
+        err_sync_bytes_exceeded: 'Storage capacity limit reached. Please remove some worlds.',
+        err_rate_limit_exceeded: 'Too many changes were made in a short time. Processing is paused. Please wait about {waitSeconds} seconds and try again.',
+        err_limit_exceeded: 'An operation limit was reached. Please wait a moment and try again.',
+        err_private_world: '"{worldName}" is private or deleted, so it cannot be added to a VRC folder.',
+        err_already_exists_different_folder: '"{worldName}" is already registered in another folder.',
+        err_already_exists_same_folder: 'This world is already registered in this folder.',
+        err_already_exists: 'This world is already registered.',
+        err_auth_required: 'Not logged in to VRChat. Please log in at vrchat.com and try again.',
+        err_not_found: 'World not found. It may have been deleted.',
+        err_world_not_found: 'World not found.',
+        err_world_details_fetch_failed: 'Failed to fetch world details.',
+        err_user_not_found: 'User not found.',
+        err_invalid_data: 'Invalid data format.',
+        err_data_inconsistency: 'A data inconsistency was found. Please try the duplicate-resolution feature.',
+        err_missing_parameter: 'Required information is missing.',
+        err_author_fetch_failed: 'Failed to fetch author information.',
+        err_no_user_id: 'No user ID was specified.',
+        err_rate_limit: 'VRChat API rate limit reached. Please wait a moment and try again.',
+        err_server_error: 'VRChat is experiencing server issues. Please wait a moment and try again.',
+        err_api_error: 'An error occurred while communicating with VRChat.',
+        err_batch_item_errors: 'Some worlds failed to process ({errorCount}): {detail}',
+        err_batch_processing_error: 'An error occurred during processing: {detail}',
+        err_unexpected: 'An unexpected error occurred: {detail}',
+        windowOpenFailed: 'Failed to open window'
     },
 };
 
@@ -463,7 +527,7 @@ const translations = {
 // 設定変数
 // ============================================================
 let currentLang = 'ja';
-let currentTheme = 'dark';
+let currentTheme = 'light';
 let autoResolveDuplicates = true;
 let duplicateStrategy = 'keep_first';
 
@@ -475,14 +539,16 @@ async function initSettings() {
         const result = await chrome.storage.sync.get('settings');
         if (result.settings) {
             currentLang = result.settings.language || 'ja';
-            currentTheme = result.settings.theme || 'dark';
+            currentTheme = result.settings.theme || 'light';
             autoResolveDuplicates = result.settings.autoResolveDuplicates !== undefined
                 ? result.settings.autoResolveDuplicates
                 : true;
             duplicateStrategy = result.settings.duplicateStrategy || 'keep_first';
-            applyTheme();
-            applyLanguage();
         }
+        // 【修正】settings未保存(初回起動)でもデフォルト値でUIを正しく初期化する。
+        // これが無いと、言語切替ボタン等の表示がHTMLの初期値のままになってしまう。
+        applyTheme();
+        applyLanguage();
     } catch (error) {
         console.error('Failed to load settings:', error);
     }
@@ -527,6 +593,12 @@ function applyLanguage() {
     if (searchInput) {
         searchInput.placeholder = translations[currentLang]['searchPlaceholder'];
     }
+
+    // 言語切替ボタン: 現在の言語ではなく「切替先」の言語を地球儀アイコン付きで表示する
+    const langToggleBtn = document.getElementById('langToggleBtn');
+    if (langToggleBtn) {
+        langToggleBtn.textContent = currentLang === 'ja' ? '🌐 EN' : '🌐 JA';
+    }
 }
 
 // ============================================================
@@ -540,6 +612,34 @@ function t(key, params = {}) {
     });
 
     return text;
+}
+
+// ============================================================
+// バックグラウンドエラー解決(response.reason -> ローカライズ文面)
+// ============================================================
+// バックグラウンド(bg_*.js)が返すレスポンスの `reason` を元に、
+// 現在の表示言語のエラーメッセージへ変換する。
+// 対応するerr_*キーが翻訳データに無い場合は、汎用の「予期しないエラー」
+// 文面にフォールバックし、response.message(開発者向け原文)を詳細として添える。
+function resolveErrorMessage(response) {
+    if (!response) return t('err_unexpected', { detail: 'Unknown error' });
+
+    const reasonKey = response.reason ? `err_${response.reason}` : null;
+    const hasTranslation = reasonKey && translations[currentLang][reasonKey];
+
+    if (hasTranslation) {
+        return t(reasonKey, {
+            waitSeconds: response.waitSeconds,
+            worldName: response.worldName,
+            folderName: response.folderName,
+            errorCount: response.errorCount,
+            detail: response.message || ''
+        });
+    }
+
+    // reasonが未知、または未登録の場合は汎用メッセージ+原文詳細
+    const detail = response.message || response.error || response.reason || 'Unknown error';
+    return t('err_unexpected', { detail });
 }
 
 // ============================================================
@@ -578,7 +678,7 @@ let vrcFolders = [];
 let selectedWorldIds = new Set();
 let currentFolder = 'all';
 let currentPage = 1;
-let itemsPerPage = 20;
+let itemsPerPage = 100;
 
 // 処理中フラグ
 let isFetchingDetails = false;

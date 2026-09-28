@@ -12,7 +12,12 @@ importScripts(
   'bg_vrc_api_service.js',
   'bg_import_export_service.js',
   'bg_user_service.js',
-  'bg_user_watch_notification.js' // 【新規追加】
+  'bg_user_watch_notification.js', // 【新規追加】
+  // 【v1.4.0リファクタリング】メッセージハンドラーを機能グループ別に分離
+  'bg_msg_world_folder.js',
+  'bg_msg_vrc_sync.js',
+  'bg_msg_user_info.js',
+  'bg_msg_watchlist.js'
 );
 
 // ========================================
@@ -158,7 +163,7 @@ async function handleQuickAdd(info, tab) {
     const allWorlds = await getAllWorldsInternal();
     const existing = allWorlds.find(w => w.id === worldId);
     if (existing) {
-      let folderName = '未分類';
+      let folderName = getBgTranslation('uncategorized', lang);
       if (existing.folderId !== 'none') {
         if (existing.folderId.startsWith('worlds')) {
           folderName = `VRC ${existing.folderId.replace('worlds', '')}`;
@@ -304,6 +309,31 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
       });
       initializeContextMenus();
     }
+
+    // 【v1.3.3追加】ウォッチリストのチェック間隔が変更されたらアラームを再設定
+    if (newSettings && (!oldSettings ||
+      newSettings.watchListCheckIntervalMinutes !== oldSettings.watchListCheckIntervalMinutes)) {
+      logAction('WATCH_LIST_INTERVAL_CHANGED', {
+        from: oldSettings?.watchListCheckIntervalMinutes,
+        to: newSettings.watchListCheckIntervalMinutes
+      });
+      if (typeof setupWatchListAlarm === 'function') {
+        setupWatchListAlarm();
+      }
+    }
+  }
+});
+
+// ========================================
+// 【v1.3.3追加】ウォッチリスト定期巡回アラーム
+// 【v1.5.0変更】軽量チェックと全件更新の所要時間にほとんど差がなく、
+// 二重のコードパスがバグの温床になっていたため、自動巡回は
+// 常に全件更新(manualCheckUpdates)を行う方式に統一した。
+// ========================================
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === NOTIFICATION_SETTINGS.WATCH_LIST_ALARM_NAME) {
+    logAction('WATCH_LIST_ALARM_FIRED');
+    manualCheckUpdates();
   }
 });
 
@@ -346,615 +376,79 @@ function notifyBridgeWindow(windowId, action, payload = {}) {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   logAction('MESSAGE_RECEIVED', { type: request.type });
 
-  switch (request.type) {
-    // ============================================================
-    // 既存のメッセージハンドラー
-    // ============================================================
-
-    case 'VRC_SYNC_COMPLETED':
-      sendResponse({ received: true });
-      return true;
-
-    case 'getAllWorlds':
-      getAllWorlds(sendResponse);
-      return true;
-
-    case 'getVRCWorlds':
-      getVRCWorlds(sendResponse);
-      return true;
-
-    case 'addWorld':
-      addWorld(request.world, sendResponse);
-      return true;
-
-    case 'removeWorld':
-      removeWorld(request.worldId, request.folderId, sendResponse);
-      return true;
-
-    case 'updateWorld':
-      updateWorld(request.world, sendResponse);
-      return true;
-
-    case 'moveWorld':
-      moveWorld(request.worldId, request.fromFolder, request.toFolder, request.newFavoriteId, sendResponse);
-      return true;
-
-    case 'batchUpdateWorlds':
-      batchUpdateWorlds(request.changes, sendResponse);
-      return true;
-
-    case 'COMMIT_BUFFER':
-      commitBuffer(request, sendResponse, (progress) => {
-        chrome.runtime.sendMessage(progress, (response) => {
-          if (chrome.runtime.lastError) {
-            // エラーログは出さない(正常動作)
-          }
-        });
-      });
-      return true;
-
-    case 'CHECK_RATE_LIMIT':
-      const waitMs = rateLimiter.getWaitTime();
-      sendResponse({
-        needsWait: waitMs > 0,
-        waitSeconds: Math.ceil(waitMs / 1000)
-      });
-      return true;
-
-    case 'detectDuplicates':
-      detectDuplicates(sendResponse);
-      return true;
-
-    case 'resolveDuplicates':
-      resolveDuplicates(request.strategy || 'keep_first', sendResponse);
-      return true;
-
-    case 'getFolders':
-      getFolders(sendResponse);
-      return true;
-
-    case 'addFolder':
-      addFolder(sendResponse);
-      return true;
-
-    case 'removeFolder':
-      removeFolder(request.folderId, sendResponse);
-      return true;
-
-    case 'renameFolder':
-      renameFolder(request.folderId, request.newName, sendResponse);
-      return true;
-
-    case 'getStorageStats':
-      getStorageStats(sendResponse);
-      return true;
-
-    case 'START_VRC_ACTION':
-      handleVRCAction(request, sendResponse);
-      return true;
-
-    case 'CANCEL_VRC_ACTION':
-      abortVRCAction(request.windowId);
-      sendResponse({ success: true });
-      return true;
-
-    case 'getSettings':
-      getSettings(sendResponse);
-      return true;
-
-    case 'saveSettings':
-      saveSettings(request.settings, sendResponse);
-      return true;
-
-    case 'updateContextMenus':
-      initializeContextMenus().then(() => sendResponse({ success: true }));
-      return true;
-
-    case 'resetAllData':
-      resetAllData(sendResponse);
-      return true;
-
-    case 'fetchAllVRCFolders':
-      if (WARN_LOG) console.warn('[Background] Deprecated: fetchAllVRCFolders called. Use START_VRC_ACTION.');
-      fetchAllVRCFolders(sendResponse);
-      return true;
-
-    case 'syncAllFavorites':
-      if (WARN_LOG) console.warn('[Background] Deprecated: syncAllFavorites called. Use START_VRC_ACTION.');
-      syncAllFavorites(sendResponse);
-      return true;
-
-    case 'getSingleWorldDetails':
-      getSingleWorldDetails(request.worldId, sendResponse);
-      return true;
-
-    case 'getVRCFavoriteInfo':
-      getVRCFavoriteInfo(request.worldId, sendResponse);
-      return true;
-
-    case 'moveVRCWorldFolder':
-      moveVRCWorldFolder(request.worldId, request.favoriteRecordId, request.fromFolder, request.toFolder, sendResponse);
-      return true;
-
-    case 'addVRCFavorite':
-      addVRCFavorite(request.worldId, request.folderId, sendResponse);
-      return true;
-
-    case 'deleteVRCFavorite':
-      deleteVRCFavorite(request.favoriteRecordId, sendResponse);
-      return true;
-
-    case 'batchImportWorlds':
-      batchImportWorlds(request, sendResponse);
-      return true;
-
-    case 'getWorldDetailsForExport':
-      getAllWorldDetailsForExport(sendResponse);
-      return true;
-
-    case 'COMMIT_BUFFER_ERROR':
-      chrome.runtime.sendMessage({
-        action: 'COMMIT_BUFFER_ERROR',
-        error: request.error || 'Unknown error'
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          // 受信側がない場合は無視
-        }
-      });
-      sendResponse({ received: true });
-      return true;
-
-    // ============================================================
-    // ユーザー情報取得機能(既存)
-    // ============================================================
-
-    case 'getWorldInfo':
-      (async () => {
-        try {
-          const result = await fetchWorldInfo(request.worldId);
-          sendResponse(result);
-        } catch (error) {
-          logError('GET_WORLD_INFO_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    case 'fetchUserInfo':
-      (async () => {
-        try {
-          const result = await fetchUserInfo(request.userIdOrName);
-          sendResponse(result);
-        } catch (error) {
-          logError('FETCH_USER_INFO_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    case 'fetchUserCreatedWorlds':
-      (async () => {
-        try {
-          const progressCallback = (progress) => {
-            chrome.runtime.sendMessage({
-              type: 'userCreatedWorldsProgress',
-              data: progress
-            }).catch(() => {
-              // ウィンドウが閉じられている場合はエラーを無視
-            });
-          };
-
-          const result = await fetchUserCreatedWorlds(
-            request.userId,
-            progressCallback
-          );
-
-          sendResponse(result);
-        } catch (error) {
-          logError('FETCH_USER_CREATED_WORLDS_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    case 'fetchWorldDetailsBatch':
-      (async () => {
-        try {
-          const progressCallback = (progress) => {
-            chrome.runtime.sendMessage({
-              type: 'userFavoritesProgress',
-              data: progress
-            }).catch(() => { });
-          };
-
-          const result = await fetchWorldDetailsBatch(
-            request.worldIds,
-            progressCallback
-          );
-
-          sendResponse(result);
-        } catch (error) {
-          logError('FETCH_WORLD_DETAILS_BATCH_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    case 'generateFavoritesCSV':
-      try {
-        const csv = generateFavoritesCSV(
-          request.favorites,
-          request.worldDetails || {},
-          request.includeDetails
-        );
-
-        sendResponse({
-          success: true,
-          csv: csv
-        });
-      } catch (error) {
-        logError('GENERATE_FAVORITES_CSV_HANDLER', error);
-        sendResponse(createGenericError(error.message));
-      }
-      return true;
-
-    case 'generateCreatedWorldsCSV':
-      try {
-        const csv = generateCreatedWorldsCSV(request.worlds);
-
-        sendResponse({
-          success: true,
-          csv: csv
-        });
-      } catch (error) {
-        logError('GENERATE_CREATED_WORLDS_CSV_HANDLER', error);
-        sendResponse(createGenericError(error.message));
-      }
-      return true;
-
-    case 'fetchUserWorldCount':
-      (async () => {
-        try {
-          const result = await fetchUserWorldCount(request.userId);
-          sendResponse(result);
-        } catch (error) {
-          logError('FETCH_USER_WORLD_COUNT_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    // ============================================================
-    // ウォッチリスト管理
-    // ============================================================
-
-    case 'loadWatchList':
-      (async () => {
-        try {
-          const watchList = await loadWatchList();
-          sendResponse({ success: true, watchList });
-        } catch (error) {
-          logError('LOAD_WATCH_LIST_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    case 'addUserToWatchList':
-      (async () => {
-        try {
-          const progressCallback = (progress) => {
-            chrome.runtime.sendMessage({
-              type: 'watchListProgress',
-              data: progress
-            }).catch(() => {
-              // ウィンドウが閉じられている場合はエラーを無視
-            });
-          };
-
-          const result = await addUserToWatchList(
-            request.userId,
-            progressCallback
-          );
-
-          sendResponse(result);
-        } catch (error) {
-          logError('ADD_USER_TO_WATCH_LIST_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    case 'removeUserFromWatchList':
-      (async () => {
-        try {
-          const result = await removeUserFromWatchList(request.userId);
-          sendResponse(result);
-        } catch (error) {
-          logError('REMOVE_USER_FROM_WATCH_LIST_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    case 'refreshUserWorlds':
-      (async () => {
-        try {
-          const progressCallback = (progress) => {
-            chrome.runtime.sendMessage({
-              type: 'watchListProgress',
-              data: progress
-            }).catch(() => { });
-          };
-
-          const result = await refreshUserWorlds(
-            request.userId,
-            progressCallback
-          );
-
-          sendResponse(result);
-        } catch (error) {
-          logError('REFRESH_USER_WORLDS_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    case 'markUserAsChecked':
-      (async () => {
-        try {
-          const result = await markUserAsChecked(request.userId);
-          sendResponse(result);
-        } catch (error) {
-          logError('MARK_USER_AS_CHECKED_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    case 'toggleUserNotification':
-      (async () => {
-        try {
-          const result = await toggleUserNotification(request.userId, request.enabled);
-          sendResponse(result);
-        } catch (error) {
-          logError('TOGGLE_USER_NOTIFICATION_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    case 'updateNotificationSetting':
-      (async () => {
-        try {
-          const result = await updateNotificationSetting(
-            request.userId,
-            request.setting,
-            request.enabled
-          );
-          sendResponse(result);
-        } catch (error) {
-          logError('UPDATE_NOTIFICATION_SETTING_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    case 'updateGlobalNotificationSetting':
-      (async () => {
-        try {
-          const result = await updateGlobalNotificationSetting(
-            request.setting,
-            request.enabled
-          );
-          sendResponse(result);
-        } catch (error) {
-          logError('UPDATE_GLOBAL_NOTIFICATION_SETTING_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    case 'exportWatchList':
-      (async () => {
-        try {
-          const result = await exportWatchListData();
-          sendResponse(result);
-        } catch (error) {
-          logError('EXPORT_WATCH_LIST_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    case 'importWatchList':
-      (async () => {
-        try {
-          const result = await importWatchListData(request.watchListIds);
-          sendResponse(result);
-        } catch (error) {
-          logError('IMPORT_WATCH_LIST_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-
-    // 【v1.2.2 新規追加】ウォッチリストからワールドをフォルダに追加
-    case 'addWorldToFolderFromWatch':
-      (async () => {
-        try {
-          // 1. ワールド詳細取得
-          const details = await getSingleWorldDetailsInternal(request.worldId);
-
-          if (!details) {
-            sendResponse(createGenericError('ワールド情報の取得に失敗しました'));
-            return;
-          }
-
-          // 2. 既存チェック（重複防止）
-          const allWorlds = await getAllWorldsInternal();
-          const existing = allWorlds.find(w => w.id === request.worldId);
-
-          if (existing) {
-            // フォルダ名を取得して通知
-            let folderName = '未分類';
-            if (existing.folderId !== 'none') {
-              if (existing.folderId.startsWith('worlds')) {
-                folderName = `VRC ${existing.folderId.replace('worlds', '')}`;
-              } else {
-                const sync = await chrome.storage.sync.get(['folders']);
-                const folder = (sync.folders || []).find(f => f.id === existing.folderId);
-                folderName = folder ? folder.name : existing.folderId;
-              }
-            }
-
-            sendResponse({
-              success: false,
-              reason: 'already_exists',
-              userMessage: `「${details.name}」は既に「${folderName}」に登録済みです`
-            });
-            return;
-          }
-
-          // 3. フォルダに追加（既存関数を利用）
-          const result = await addWorldToFolder({
-            ...details,
-            folderId: request.folderId
-          });
-
-          sendResponse(result);
-        } catch (error) {
-          logError('ADD_WORLD_TO_FOLDER_FROM_WATCH_ERROR', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    // ============================================================
-    // 【新規追加 v1.2.1】通知関連
-    // ============================================================
-
-    case 'getUnreadNotifications':
-      try {
-        const result = getUnreadNotifications();
-        sendResponse(result);
-      } catch (error) {
-        logError('GET_UNREAD_NOTIFICATIONS_HANDLER', error);
-        sendResponse(createGenericError(error.message));
-      }
-      return true;
-
-    case 'clearUserNotifications':
-      (async () => {
-        try {
-          const result = await clearUserNotifications(request.userId);
-          sendResponse(result);
-        } catch (error) {
-          logError('CLEAR_USER_NOTIFICATIONS_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    case 'clearAllNotifications':
-      (async () => {
-        try {
-          const result = await clearAllNotifications();
-          sendResponse(result);
-        } catch (error) {
-          logError('CLEAR_ALL_NOTIFICATIONS_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    case 'manualCheckUpdates':
-      (async () => {
-        try {
-          const result = await manualCheckUpdates();
-          sendResponse(result || { success: false, error: 'No response from manualCheckUpdates' });
-        } catch (error) {
-          logError('MANUAL_CHECK_UPDATES_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    // ============================================================
-    // ウォッチリスト件数取得
-    // ============================================================
-
-    case 'getWatchListCount':
-      (async () => {
-        try {
-          const result = await getWatchListCount();
-          sendResponse(result);
-        } catch (error) {
-          logError('GET_WATCH_LIST_COUNT_HANDLER', error);
-          sendResponse({ success: false, count: 0, error: error.message });
-        }
-      })();
-      return true;
-
-    // ============================================================
-    // ウォッチリスト追加（エイリアス）
-    // ============================================================
-
-    case 'addToWatchList':
-      (async () => {
-        try {
-          let userId = request.userId;
-          let authorName = request.authorName;
-
-          // worldIdが渡された場合は、まず作者情報を取得
-          if (request.worldId && !userId) {
-            const worldInfoResponse = await fetchWorldInfo(request.worldId);
-            if (!worldInfoResponse.success || !worldInfoResponse.world.authorId) {
-              sendResponse({
-                success: false,
-                reason: 'author_fetch_failed',
-                userMessage: '作者情報の取得に失敗しました'
-              });
-              return;
-            }
-            userId = worldInfoResponse.world.authorId;
-            authorName = worldInfoResponse.world.authorName;
-          }
-
-          if (!userId) {
-            sendResponse({
-              success: false,
-              reason: 'no_user_id',
-              userMessage: 'ユーザーIDが指定されていません'
-            });
-            return;
-          }
-
-          const result = await addUserToWatchList(userId);
-
-          // 成功レスポンスにauthorNameを追加して返す
-          if (result.success) {
-            sendResponse({
-              ...result,
-              authorName: authorName || result.user?.displayName
-            });
-          } else {
-            sendResponse(result);
-          }
-        } catch (error) {
-          logError('ADD_TO_WATCH_LIST_HANDLER', error);
-          sendResponse(createGenericError(error.message));
-        }
-      })();
-      return true;
-
-    // ============================================================
-    // デフォルト(不明なメッセージ)
-    // ============================================================
-
-    default:
-      logError('UNKNOWN_MESSAGE', 'Unknown message type', { type: request.type });
-      sendResponse({ error: 'Unknown message type' });
+  const handler = MESSAGE_HANDLERS[request.type];
+  if (handler) {
+    return handler(request, sendResponse);
   }
+
+  logError('UNKNOWN_MESSAGE', 'Unknown message type', { type: request.type });
+  sendResponse({ error: 'Unknown message type' });
 });
+// ========================================
+// メッセージハンドラー ディスパッチマップ
+// 実体は bg_msg_*.js に機能グループ別で定義されている
+// ========================================
+const MESSAGE_HANDLERS = {
+  'VRC_SYNC_COMPLETED': handleMsg_VRC_SYNC_COMPLETED,
+  'getAllWorlds': handleMsg_getAllWorlds,
+  'getVRCWorlds': handleMsg_getVRCWorlds,
+  'addWorld': handleMsg_addWorld,
+  'removeWorld': handleMsg_removeWorld,
+  'updateWorld': handleMsg_updateWorld,
+  'moveWorld': handleMsg_moveWorld,
+  'batchUpdateWorlds': handleMsg_batchUpdateWorlds,
+  'COMMIT_BUFFER': handleMsg_COMMIT_BUFFER,
+  'CHECK_RATE_LIMIT': handleMsg_CHECK_RATE_LIMIT,
+  'detectDuplicates': handleMsg_detectDuplicates,
+  'resolveDuplicates': handleMsg_resolveDuplicates,
+  'getFolders': handleMsg_getFolders,
+  'addFolder': handleMsg_addFolder,
+  'removeFolder': handleMsg_removeFolder,
+  'renameFolder': handleMsg_renameFolder,
+  'getStorageStats': handleMsg_getStorageStats,
+  'START_VRC_ACTION': handleMsg_START_VRC_ACTION,
+  'CANCEL_VRC_ACTION': handleMsg_CANCEL_VRC_ACTION,
+  'getSettings': handleMsg_getSettings,
+  'saveSettings': handleMsg_saveSettings,
+  'updateContextMenus': handleMsg_updateContextMenus,
+  'resetAllData': handleMsg_resetAllData,
+  'fetchAllVRCFolders': handleMsg_fetchAllVRCFolders,
+  'syncAllFavorites': handleMsg_syncAllFavorites,
+  'getSingleWorldDetails': handleMsg_getSingleWorldDetails,
+  'getVRCFavoriteInfo': handleMsg_getVRCFavoriteInfo,
+  'moveVRCWorldFolder': handleMsg_moveVRCWorldFolder,
+  'addVRCFavorite': handleMsg_addVRCFavorite,
+  'deleteVRCFavorite': handleMsg_deleteVRCFavorite,
+  'batchImportWorlds': handleMsg_batchImportWorlds,
+  'getWorldDetailsForExport': handleMsg_getWorldDetailsForExport,
+  'COMMIT_BUFFER_ERROR': handleMsg_COMMIT_BUFFER_ERROR,
+  'getWorldInfo': handleMsg_getWorldInfo,
+  'fetchUserInfo': handleMsg_fetchUserInfo,
+  'fetchUserCreatedWorlds': handleMsg_fetchUserCreatedWorlds,
+  'fetchWorldDetailsBatch': handleMsg_fetchWorldDetailsBatch,
+  'generateFavoritesCSV': handleMsg_generateFavoritesCSV,
+  'generateCreatedWorldsCSV': handleMsg_generateCreatedWorldsCSV,
+  'fetchUserWorldCount': handleMsg_fetchUserWorldCount,
+  'loadWatchList': handleMsg_loadWatchList,
+  'addUserToWatchList': handleMsg_addUserToWatchList,
+  'addUserIdsBulk': handleMsg_addUserIdsBulk,
+  'removeUserFromWatchList': handleMsg_removeUserFromWatchList,
+  'removeMultipleUsersFromWatchList': handleMsg_removeMultipleUsersFromWatchList,
+  'refreshUserWorlds': handleMsg_refreshUserWorlds,
+  'markUserAsChecked': handleMsg_markUserAsChecked,
+  'toggleUserNotification': handleMsg_toggleUserNotification,
+  'updateNotificationSetting': handleMsg_updateNotificationSetting,
+  'updateGlobalNotificationSetting': handleMsg_updateGlobalNotificationSetting,
+  'exportWatchList': handleMsg_exportWatchList,
+  'importWatchList': handleMsg_importWatchList,
+  'addWorldToFolderFromWatch': handleMsg_addWorldToFolderFromWatch,
+  'getUnreadNotifications': handleMsg_getUnreadNotifications,
+  'clearUserNotifications': handleMsg_clearUserNotifications,
+  'clearAllNotifications': handleMsg_clearAllNotifications,
+  'manualCheckUpdates': handleMsg_manualCheckUpdates,
+  'getManualCheckProgress': handleMsg_getManualCheckProgress,
+  'lightCheckUpdates': handleMsg_lightCheckUpdates,
+  'abortWatchListCheck': handleMsg_abortWatchListCheck,
+  'getWatchListCount': handleMsg_getWatchListCount,
+  'addToWatchList': handleMsg_addToWatchList,
+};

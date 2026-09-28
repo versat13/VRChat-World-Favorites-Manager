@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ユーザーウォッチリスト v1.2.2</title>
+  <title>ユーザーウォッチリスト</title>
   <style>
     :root {
       --bg-primary: #0a0e1a;
@@ -989,6 +989,52 @@
       display: block;
     }
 
+    /* v1.4.0追加: 未ログイン時のバナー(自動で消えない) */
+    .not-logged-in-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      padding: 8px 10px;
+      background-color: var(--error-bg, rgba(239, 68, 68, 0.12));
+      border: 1px solid var(--error, #ef4444);
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--text-primary);
+    }
+
+    .not-logged-in-banner span {
+      flex: 1;
+    }
+
+    .not-logged-in-banner button {
+      padding: 5px 10px;
+      border: none;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    #notLoggedInOpenBtn {
+      background-color: var(--accent-primary, #4a9eff);
+      color: #fff;
+    }
+
+    #notLoggedInOpenBtn:hover {
+      opacity: 0.9;
+    }
+
+    .not-logged-in-banner .dismiss-btn {
+      background: transparent;
+      color: var(--text-secondary);
+      padding: 5px 8px;
+    }
+
+    .not-logged-in-banner .dismiss-btn:hover {
+      color: var(--text-primary);
+    }
+
     /* アクションボタン行 - 1行に統合 */
     .action-buttons-row {
       display: flex;
@@ -1335,12 +1381,20 @@
             <span class="import-progress" id="importProgress" data-i18n="importProgress">追加中: 0/0</span>
           </div>
 
-          <!-- アクションボタン行(1行に統合) -->
+          <!-- アクションボタン行(元のレイアウトに合わせて1行に統合) -->
           <div class="action-buttons-row">
             <button id="deleteSelectedBtn" class="action-button-delete danger" data-i18n="deleteButton">🗑 削除</button>
-            <button id="manualCheckBtn" class="action-button" data-i18n="manualCheckButton">🔄 手動更新</button>
+            <button id="manualCheckBtn" class="action-button" data-i18n="manualCheckButton">🔄 全件更新</button>
             <button id="clearAllUnreadBtn" class="action-button" data-i18n="clearAllUnreadButton">✓ 未読クリア</button>
+            <button id="abortCheckBtn" class="action-button-delete danger" data-i18n="abortCheckButton" style="display: none;">⏹ 停止</button>
           </div>
+        </div>
+
+        <!-- v1.4.0追加: 未ログイン時に消えずに残るバナー -->
+        <div id="notLoggedInBanner" class="not-logged-in-banner" style="display: none;">
+          <span id="notLoggedInBannerText"></span>
+          <button id="notLoggedInOpenBtn" type="button"></button>
+          <button id="notLoggedInDismissBtn" type="button" class="dismiss-btn">✕</button>
         </div>
       </div>
 
@@ -1376,7 +1430,11 @@
   </div>
 
   <script src="page-helpers-shared.js"></script>
-  <script src="popup3_user_watch.js"></script>
+  <script src="popup3_translations.js"></script>
+  <script src="popup3_setup.js"></script>
+  <script src="popup3_data.js"></script>
+  <script src="popup3_render.js"></script>
+  <script src="popup3_actions.js"></script>
 </body>
 
 </html>

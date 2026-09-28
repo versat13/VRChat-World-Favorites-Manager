@@ -213,6 +213,30 @@
       }
     }
 
+    // 【フォールバック】VRChat公式サイトのDOM構造・難読化クラス名が
+    // 変更された場合に備え、想定していた挿入先が見つからないことを
+    // 開発時にログで検知できるようにする（本番ユーザーへの影響はなし）。
+    if (DEBUG_LOG) {
+      console.warn('[World Page] Expected DOM structure not found. Falling back.', {
+        rightColumnFound: !!rightColumn,
+        selector: SELECTORS.RIGHT_COLUMN
+      });
+    }
+
+    // 代替コンテナへの挿入を試みる（フローティングパネルより見た目が自然なため優先）
+    for (const fallbackSelector of SELECTORS.FALLBACK_CONTAINERS) {
+      const fallbackContainer = document.querySelector(fallbackSelector);
+      if (fallbackContainer) {
+        const panel = createPanelElement(worldId);
+        fallbackContainer.appendChild(panel);
+        setupButtonEvents(worldId);
+        if (DEBUG_LOG) {
+          console.log('[World Page] Inserted via fallback container:', fallbackSelector);
+        }
+        return;
+      }
+    }
+
     createFloatingPanel(worldId);
   }
 
@@ -455,6 +479,7 @@
       title: t('selectFolder'),
       description: t('selectFolderDesc'),
       folders: folders,
+      cancelLabel: t('cancel'),
       onConfirm: (folderId) => {
         addToExtension(worldId, folderId);
       }
@@ -702,9 +727,9 @@
           }
           clearTimeout(timer);
 
-          if (floatingPanel && floatingPanel.parentNode) {
-            floatingPanel.remove();
-          }
+          // floatingPanel(引数で渡された参照)だけでなく、DOM上に残っている
+          // 可能性のある全ての同IDパネルを削除してから新パネルを追加する。
+          document.querySelectorAll('[id="vrc-resolver-buttons"]').forEach(panel => panel.remove());
 
           const panel = createPanelElement(worldId, false);
           detailsBody.appendChild(panel);
@@ -749,19 +774,41 @@
     }, TIMEOUTS.URL_CHECK_INTERVAL);
   }
 
+  /**
+   * 【重複パネル対策】
+   * VRChat公式サイト側のReact再レンダリングのタイミングによっては、
+   * 古いパネル(要素)がDOMから完全に取り除かれる前に新しいパネルが
+   * 追加され、同じ id="vrc-resolver-buttons" を持つ要素が一時的に
+   * 2つ以上共存してしまうことがある。document.getElementById は
+   * 最初の1つしか返さずこの状態を検知できないため、
+   * querySelectorAll で全件確認し、最新の1つを残して残りを除去する。
+   */
+  function removeDuplicatePanels() {
+    const panels = document.querySelectorAll('[id="vrc-resolver-buttons"]');
+    if (panels.length <= 1) return;
+
+    if (DEBUG_LOG) {
+      console.warn(`[World Page] Detected ${panels.length} duplicate panels. Removing extras.`);
+    }
+
+    // 最後(DOM上で最も新しく追加された可能性が高い)の1つを残し、他を削除する
+    for (let i = 0; i < panels.length - 1; i++) {
+      panels[i].remove();
+    }
+  }
+
   const urlObserver = new MutationObserver(() => {
     const currentUrl = location.href;
     if (currentUrl !== lastUrl) {
       lastUrl = currentUrl;
       handleUrlChange();
+    } else {
+      removeDuplicatePanels();
     }
   });
 
   function handleUrlChange() {
-    const existingPanel = document.getElementById('vrc-resolver-buttons');
-    if (existingPanel) {
-      existingPanel.remove();
-    }
+    document.querySelectorAll('[id="vrc-resolver-buttons"]').forEach(panel => panel.remove());
 
     if (rightColumnObserver) {
       try {
@@ -800,9 +847,9 @@
 
     await initContentScriptSettings();
     watchSettingsChanges(() => {
-      const existingPanel = document.getElementById('vrc-resolver-buttons');
-      if (existingPanel) {
-        existingPanel.remove();
+      const existingPanels = document.querySelectorAll('[id="vrc-resolver-buttons"]');
+      if (existingPanels.length > 0) {
+        existingPanels.forEach(panel => panel.remove());
         createButtonPanel();
       }
     });

@@ -29,34 +29,34 @@ function createSuccessResponse(data = {}) {
 function createLimitError(limitType, details = {}) {
   const errorMap = {
     'vrc_limit': {
-      reason: 'vrc_limit_exceeded',
+      reason: ErrorReason.VRC_LIMIT_EXCEEDED,
       message: 'VRCフォルダが200件を超えています',
       userMessage: 'VRCフォルダの上限(200件)に達しています。これ以上追加できません。'
     },
     'vrc_sync_limit': {
-      reason: 'vrc_sync_limit_exceeded',
+      reason: ErrorReason.VRC_SYNC_LIMIT_EXCEEDED,
       message: 'VRCフォルダが100件を超えているため同期できません',
       userMessage: 'VRCフォルダが100件を超えているため、VRChatへの同期ができません。不要なワールドを削除してください。'
     },
     'sync_limit': {
-      reason: 'sync_limit_exceeded',
+      reason: ErrorReason.SYNC_LIMIT_EXCEEDED,
       message: '共有ストレージが1000件を超えています',
       userMessage: 'カスタムフォルダの上限(1000件)に達しています。不要なワールドを削除してください。'
     },
     'sync_bytes': {
-      reason: 'sync_bytes_exceeded',
+      reason: ErrorReason.SYNC_BYTES_EXCEEDED,
       message: '共有ストレージの容量上限を超えています',
       userMessage: 'ストレージ容量が上限に達しています。不要なワールドを削除してください。'
     },
     'rate_limit': {
-      reason: 'rate_limit_exceeded',
+      reason: ErrorReason.RATE_LIMIT_EXCEEDED,
       message: '書き込み速度制限に達しました',
       userMessage: '短時間に多くの変更を行ったため、処理を一時停止しています。1分ほど待ってから再度お試しください。'
     }
   };
 
   const errorInfo = errorMap[limitType] || {
-    reason: 'limit_exceeded',
+    reason: ErrorReason.LIMIT_EXCEEDED,
     message: '制限を超えています',
     userMessage: '操作の制限に達しました。しばらく待ってから再度お試しください。'
   };
@@ -76,7 +76,7 @@ function createLimitError(limitType, details = {}) {
 function createPrivateWorldError(worldName) {
   return {
     success: false,
-    reason: 'private_world',
+    reason: ErrorReason.PRIVATE_WORLD,
     message: 'プライベート・削除済ワールドはVRCフォルダに追加できません',
     userMessage: `「${worldName}」はプライベートまたは削除済みのため、VRCフォルダには追加できません。`,
     worldName
@@ -89,7 +89,7 @@ function createPrivateWorldError(worldName) {
 function createAlreadyExistsError(existingFolder, worldName) {
   return {
     success: false,
-    reason: 'already_exists_different_folder',
+    reason: ErrorReason.ALREADY_EXISTS_DIFFERENT_FOLDER,
     message: 'このワールドは既に登録されています',
     userMessage: `「${worldName}」は既に別のフォルダに登録されています。`,
     existingFolder,
@@ -103,7 +103,7 @@ function createAlreadyExistsError(existingFolder, worldName) {
 function createAuthError() {
   return {
     success: false,
-    reason: 'auth_required',
+    reason: ErrorReason.AUTH_REQUIRED,
     message: 'VRChatにログインしていません',
     userMessage: 'VRChatにログインしていません。vrchat.comでログインしてから再度お試しください。'
   };
@@ -115,22 +115,22 @@ function createAuthError() {
 function createApiError(status, context = {}) {
   let message = 'VRChat APIエラーが発生しました';
   let userMessage = 'VRChatとの通信でエラーが発生しました。';
-  let reason = 'api_error';
+  let reason = ErrorReason.API_ERROR;
 
   if (status === 401) {
     return createAuthError();
   } else if (status === 404) {
     message = 'ワールドが見つかりません';
     userMessage = 'ワールドが見つかりませんでした。削除された可能性があります。';
-    reason = 'not_found';
+    reason = ErrorReason.NOT_FOUND;
   } else if (status === 429) {
     message = 'APIリクエスト制限に達しました';
     userMessage = 'VRChatのAPI制限に達しました。しばらく待ってから再度お試しください。';
-    reason = 'rate_limit';
+    reason = ErrorReason.RATE_LIMIT;
   } else if (status >= 500) {
     message = 'VRChatサーバーエラーが発生しました';
     userMessage = 'VRChatのサーバーで問題が発生しています。しばらく待ってから再度お試しください。';
-    reason = 'server_error';
+    reason = ErrorReason.SERVER_ERROR;
   }
 
   return {
@@ -149,7 +149,7 @@ function createApiError(status, context = {}) {
 function createRateLimitError(waitSeconds = 60) {
   return {
     success: false,
-    reason: 'rate_limit_exceeded',
+    reason: ErrorReason.RATE_LIMIT_EXCEEDED,
     message: '書き込み速度制限に達しました',
     userMessage: `短時間に多くの変更を行ったため、処理を一時停止しています。約${waitSeconds}秒お待ちください。`,
     waitSeconds: waitSeconds,
@@ -160,7 +160,7 @@ function createRateLimitError(waitSeconds = 60) {
 /**
  * 汎用エラーを生成
  */
-function createGenericError(message, reason = 'unknown_error') {
+function createGenericError(message, reason = ErrorReason.UNKNOWN_ERROR) {
   return {
     success: false,
     reason: reason,
@@ -175,7 +175,7 @@ function createGenericError(message, reason = 'unknown_error') {
 function createDataInconsistencyError(worldId, detail) {
   return {
     success: false,
-    reason: 'data_inconsistency',
+    reason: ErrorReason.DATA_INCONSISTENCY,
     message: 'データの不整合が検出されました',
     userMessage: 'データに不整合が見つかりました。重複検出機能で修復を試してください。',
     worldId: worldId,

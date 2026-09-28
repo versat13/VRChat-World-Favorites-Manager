@@ -9,7 +9,7 @@
 // 'WARN': 警告以上
 // 'INFO': 情報以上
 // 'DEBUG': すべてのログ
-const LOG_LEVEL = 'ERROR'; // 本番リリース時は 'ERROR' に変更してください
+const LOG_LEVEL = 'DEBUG'; // WIPデバッグビルド: 本番リリース時は 'ERROR' に変更してください
 
 const DEBUG_LOG = LOG_LEVEL === 'DEBUG';
 const INFO_LOG = ['DEBUG', 'INFO'].includes(LOG_LEVEL);
@@ -61,7 +61,7 @@ const API_DELAYS = {
 // UI設定
 // ========================================
 const UI_DEFAULTS = {
-  itemsPerPage: 20,                      // デフォルト表示件数
+  itemsPerPage: 100,                     // デフォルト表示件数
   notificationDuration: 3000             // 通知表示時間（ms）
 };
 
@@ -70,11 +70,15 @@ const UI_DEFAULTS = {
 // ========================================
 const NOTIFICATION_SETTINGS = {
   CHECK_INTERVALS: {
-    ON_STARTUP: 0,           // 起動時のみ
+    ON_STARTUP: 0,           // 起動時のみ(定期実行なし)
     ONE_HOUR: 3600000,       // 1時間（ミリ秒）
     THREE_HOURS: 10800000,   // 3時間（ミリ秒）
     TWELVE_HOURS: 43200000   // 12時間（ミリ秒）
   },
+  // 【v1.5.0変更】0=自動巡回しない / -1=起動時のみ / 60,180,720=定期実行の分間隔
+  CHECK_INTERVAL_MINUTES_OPTIONS: [0, -1, 60, 180, 720],
+  DEFAULT_CHECK_INTERVAL_MINUTES: 0, // デフォルトは「自動巡回しない」
+  WATCH_LIST_ALARM_NAME: 'watchListPeriodicCheck',
   STARTUP_DELAY: 100,        // 起動後100ms待機
   TODAY_HOURS: 24,           // 「今日」判定（24時間以内）
   BADGE_MAX: 99              // バッジ最大表示数
@@ -175,4 +179,48 @@ const ProgressMessage = {
     action: ProgressMessageType.VRC_ACTION_ERROR,
     error
   })
+};
+
+// ========================================
+// 【v1.3.3追加】ウォッチリストID チャンク分割保存
+// ========================================
+// chrome.storage.sync は1キーあたり8KB(QUOTA_BYTES_PER_ITEM)の上限があり、
+// 140件程度のウォッチリストで容易に超過する。これを回避するため、
+// watchListIds を複数の小さなキーに分割して保存する。
+const WATCH_LIST_CHUNK_SIZE = 40; // 1チャンクあたりの件数(1件約110byte換算で約4.4KB、8KB上限に十分な余裕を持たせる)
+const WATCH_LIST_CHUNK_KEY_PREFIX = 'watchListIds_chunk';
+const WATCH_LIST_CHUNK_COUNT_KEY = 'watchListIds_chunkCount';
+
+// ========================================
+// エラーレスポンス reason 定数
+// ========================================
+// response.reason に入る文字列を一箇所に集約する。
+// popup側(popup_core.js / popup3_actions.js等)は `err_${response.reason}`
+// という命名規則で翻訳キーを組み立てるため、ここの値を変更する場合は
+// 対応する翻訳データ(err_*)も合わせて更新すること。
+const ErrorReason = {
+  ALREADY_CHECKING: 'already_checking',
+  ALREADY_EXISTS: 'already_exists',
+  ALREADY_EXISTS_DIFFERENT_FOLDER: 'already_exists_different_folder',
+  ALREADY_EXISTS_SAME_FOLDER: 'already_exists_same_folder',
+  API_ERROR: 'api_error',
+  AUTH_REQUIRED: 'auth_required',
+  AUTHOR_FETCH_FAILED: 'author_fetch_failed',
+  BATCH_PROCESSING_ERROR: 'batch_processing_error',
+  DATA_INCONSISTENCY: 'data_inconsistency',
+  INVALID_DATA: 'invalid_data',
+  LIMIT_EXCEEDED: 'limit_exceeded',
+  NO_USER_ID: 'no_user_id',
+  NOT_FOUND: 'not_found',
+  PRIVATE_WORLD: 'private_world',
+  RATE_LIMIT: 'rate_limit',
+  RATE_LIMIT_EXCEEDED: 'rate_limit_exceeded',
+  SERVER_ERROR: 'server_error',
+  SYNC_BYTES_EXCEEDED: 'sync_bytes_exceeded',
+  SYNC_LIMIT_EXCEEDED: 'sync_limit_exceeded',
+  UNKNOWN_ERROR: 'unknown_error',
+  USER_NOT_FOUND: 'user_not_found',
+  VRC_LIMIT_EXCEEDED: 'vrc_limit_exceeded',
+  VRC_SYNC_LIMIT_EXCEEDED: 'vrc_sync_limit_exceeded',
+  WORLD_NOT_FOUND: 'world_not_found'
 };

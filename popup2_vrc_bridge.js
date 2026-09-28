@@ -88,6 +88,8 @@ const translations = {
     errorDetails: 'エラー詳細: {error}',
     partialSuccess: '一部のワールドの処理に失敗しました ({count}件のエラー)',
     notLoggedIn: 'VRChatにログインしていません。vrchat.comでログインしてから再度お試しください。',
+    openVrchatLoginBtn: 'VRChat公式サイトを開く',
+    openVrchatLoginBtnDone: 'タブを開きました',
 
     // 自動クローズ関連
     autoCloseIn: '{seconds}秒後に自動的に閉じます',
@@ -179,6 +181,8 @@ const translations = {
     errorDetails: 'Error: {error}',
     partialSuccess: 'Some worlds failed ({count} errors)',
     notLoggedIn: 'Not logged in to VRChat. Please log in at vrchat.com and try again.',
+    openVrchatLoginBtn: 'Open VRChat Website',
+    openVrchatLoginBtnDone: 'Tab opened',
 
     // Auto-close related
     autoCloseIn: 'Auto-closing in {seconds} seconds',
@@ -191,7 +195,7 @@ const translations = {
 // グローバル変数
 // ========================================
 let currentLang = 'ja';
-let currentTheme = 'dark';
+let currentTheme = 'light';
 let isProcessing = false;
 let currentWindowId = null;
 let autoCloseTimer = null;
@@ -218,7 +222,7 @@ async function loadSettings() {
     const result = await chrome.storage.sync.get('settings');
     if (result.settings) {
       currentLang = result.settings.language || 'ja';
-      currentTheme = result.settings.theme || 'dark';
+      currentTheme = result.settings.theme || 'light';
     }
   } catch (error) {
     console.error('[Bridge] Failed to load settings:', error);
@@ -412,13 +416,14 @@ function handleComplete(result) {
 
   if (result.notLoggedIn) {
     setStatus(t('statusError'));
-    showError(t('notLoggedIn'));
+    showNotLoggedInError();
     // 即座にメインpopupへ通知
     chrome.runtime.sendMessage({
       type: 'VRC_SYNC_COMPLETED',
       result: result
     }).catch(e => console.warn('Failed to send VRC_SYNC_COMPLETED:', e));
-    scheduleAutoClose();
+    // 【v1.4.0修正】ユーザーが「VRChatを開く」ボタンを押す前にウィンドウが
+    // 閉じてしまわないよう、ここでは自動クローズしない。
     return;
   }
 
@@ -521,6 +526,43 @@ function closeWindow() {
 }
 
 // ========================================
+// 未ログイン時: VRChat公式サイトを開く
+// ========================================
+function openVRChatLoginPage() {
+  try {
+    chrome.tabs.create({ url: 'https://vrchat.com/home/login' });
+  } catch (error) {
+    console.warn('[Bridge] Failed to open VRChat login page:', error);
+  }
+}
+
+/**
+ * 【v1.4.0修正】未ログインを検知した際、以前は自動的にVRChat公式サイトの
+ * ログインページを新規タブで開いていたが、ユーザーの意思を確認せず
+ * 勝手にタブが開く挙動は望ましくないため、まずメッセージのみを表示し、
+ * 「VRChatを開く」ボタンをクリックした場合のみタブを開くよう変更した。
+ * また、ボタンを押す前にウィンドウが自動で閉じてしまわないよう、
+ * scheduleAutoClose も呼ばない。
+ */
+function showNotLoggedInError() {
+  showError(t('notLoggedIn'));
+
+  const openBtn = document.getElementById('openVrchatLoginBtn');
+  if (openBtn) {
+    openBtn.textContent = t('openVrchatLoginBtn');
+    openBtn.style.display = 'block';
+    openBtn.onclick = () => {
+      openVRChatLoginPage();
+      openBtn.disabled = true;
+      openBtn.textContent = t('openVrchatLoginBtnDone');
+      // VRChatのタブを開いた後は、この同期用ウィンドウの役目は終わって
+      // いるため、少し間を置いてから自動的に閉じる。
+      setTimeout(() => closeWindow(), 1500);
+    };
+  }
+}
+
+// ========================================
 // エラーハンドラー
 // ========================================
 function handleError(error) {
@@ -538,8 +580,9 @@ function handleError(error) {
 
   // 未ログインエラーの特別処理
   if (error === 'VRChatにログインしていません' || (typeof error === 'string' && error.includes('ログインしていません'))) {
-    showError(t('notLoggedIn'));
-    scheduleAutoClose();
+    showNotLoggedInError();
+    // 【v1.4.0修正】ユーザーが「VRChatを開く」ボタンを押す前にウィンドウが
+    // 閉じてしまわないよう、ここでは自動クローズしない。
     return;
   }
 
